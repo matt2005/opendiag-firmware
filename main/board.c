@@ -32,7 +32,9 @@
 
 static adc_oneshot_unit_handle_t adc1_handle;
 static adc_cali_handle_t adc1_cal_handle;
+#ifndef OPENDIAG_BOARD_REJSACAN
 static uint8_t board_id;
+#endif
 static struct {
     int32_t vbatt_gain;
     int32_t vbatt_offset;
@@ -43,7 +45,9 @@ static struct {
     bool calibrated;
 } pc_calibration;
 
+#ifndef OPENDIAG_BOARD_REJSACAN
 static int board_adc_read_boardid(void);
+#endif
 
 static void board_gpio_isr_install(void *arg) {
     *(esp_err_t *)arg =
@@ -51,6 +55,7 @@ static void board_gpio_isr_install(void *arg) {
 }
 
 void board_setup(void) {
+#ifndef OPENDIAG_BOARD_REJSACAN /* RejsaCAN puts CAN0 on GPIO 13 and 14 */
     /* J1850 driver */
     gpio_reset_pin(PIN_J1850_MODE);
     gpio_set_level(PIN_J1850_MODE,
@@ -71,6 +76,7 @@ void board_setup(void) {
 
     gpio_reset_pin(PIN_J1850_VPW_RX);
     gpio_set_direction(PIN_J1850_VPW_RX, GPIO_MODE_INPUT);
+#endif /* !OPENDIAG_BOARD_REJSACAN */
 
     /* CAN0 transceiver: silent until a bus is actually opened, so the
      * adapter cannot drive a vehicle bus it was only plugged into. */
@@ -78,6 +84,7 @@ void board_setup(void) {
     gpio_set_level(PIN_CAN0_SILENT, 1);
     gpio_set_direction(PIN_CAN0_SILENT, GPIO_MODE_OUTPUT);
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* no AUX_CAN, K-Line or OBD drivers */
     /* CAN1 (AUX_CAN header) likewise: left floating, the TJA1051's pull-down
      * on S would put it in normal mode. */
     gpio_reset_pin(PIN_CAN1_SILENT);
@@ -161,6 +168,7 @@ void board_setup(void) {
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&low_side));
+#endif /* !OPENDIAG_BOARD_REJSACAN */
 
     esp_err_t gpio_isr_err = ESP_OK;
     /* Keep shared GPIO timing interrupts away from Bluetooth on core 0. */
@@ -178,10 +186,12 @@ void board_setup(void) {
         .atten = ADC_ATTEN_DB_0,
         .bitwidth = ADC_BITWIDTH_12,
     };
+#ifndef OPENDIAG_BOARD_REJSACAN /* GPIO 1 and 2 are SDA and SCL on RejsaCAN */
     ESP_ERROR_CHECK(
         adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config));
     ESP_ERROR_CHECK(
         adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_1, &config));
+#endif
     ESP_ERROR_CHECK(
         adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_8, &config));
 
@@ -193,8 +203,10 @@ void board_setup(void) {
     ESP_ERROR_CHECK(
         adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cal_handle));
 
+#ifndef OPENDIAG_BOARD_REJSACAN
     /* Read board id from register strap */
     board_id = (board_adc_read_boardid() >> 8) & 0xff;
+#endif
 
     /* Retrieve calibration data from persistent config nvs */
     nvs_handle_t pc_handle;
@@ -368,6 +380,7 @@ esp_err_t board_calibration_set(const char *name, int32_t value) {
     return ESP_OK;
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN
 static int board_adc_read_ch(int ch) {
     int val;
     ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ch, &val));
@@ -386,8 +399,13 @@ static int board_adc_read_vbatt(void) {
 static int board_adc_read_hs_vsense(void) {
     return board_adc_read_ch(ADC_CHANNEL_0);
 }
+#endif /* !OPENDIAG_BOARD_REJSACAN */
 
 int32_t board_get_vbatt(void) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* RejsaCAN has no confirmed battery sense input, so there is no reading. */
+    return -1;
+#else
     int i;
     int adc_val = 0;
 
@@ -402,9 +420,14 @@ int32_t board_get_vbatt(void) {
     float volt = (adc_val * adc_gain) + adc_offset;
 
     return (int32_t)volt;
+#endif
 }
 
 int32_t board_get_hs_vsense(void) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* RejsaCAN has no high side sense input. */
+    return -1;
+#else
     int i;
     int adc_val = 0;
 
@@ -420,8 +443,29 @@ int32_t board_get_hs_vsense(void) {
     float volt = (adc_val * adc_gain) + adc_offset;
 
     return (int32_t)volt;
+#endif
 }
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* No OBD drivers on RejsaCAN: the HS and LS controls do nothing. */
+void board_set_hs_boost_en(int state) { (void)state; }
+
+void board_set_hs_voltage(uint32_t millivolt) { (void)millivolt; }
+
+void board_set_hs_state(enum hs_pin pin, int state) {
+    (void)pin;
+    (void)state;
+}
+
+void board_set_ls_state(enum ls_pin pin, int state) {
+    (void)pin;
+    (void)state;
+}
+
+void board_hs_ls_reset_state(void) {}
+
+void board_calibrate_hs(void) {}
+#else
 void board_set_hs_boost_en(int state) {
     gpio_set_level(PIN_HS_BOOST_EN, state);
 }
@@ -663,9 +707,16 @@ void board_calibrate_hs(void) {
     }
 }
 
+#endif /* OPENDIAG_BOARD_REJSACAN */
+
 #define VBATT_CAL_LOW_V 10.0f
 #define VBATT_CAL_HIGH_V 26.0f
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* The battery sense input is not confirmed on RejsaCAN, and the stored
+ * calibration is for the stock divider. vif_calibrate_vbatt() refuses first. */
+void board_calibrate_vbatt(void) {}
+#else
 void board_calibrate_vbatt(void) {
     char str[2] = {0};
     int i = 0, adcl = 0, adch = 0;
@@ -746,3 +797,4 @@ void board_calibrate_vbatt(void) {
         printf("Cancelled.\n");
     }
 }
+#endif /* OPENDIAG_BOARD_REJSACAN */

@@ -43,6 +43,14 @@ static struct {
     uint32_t tx_end_lag_us; /* How long before the send returns a frame ends. */
     bool overflow_next; /* next received frame reports BUS_RX_BUFFER_OVERFLOW */
     uint32_t rx_status; /* status staged with the frame just received */
+    esp_err_t teardown_result;
+    bool bus_on_ok; /* BUS_IOCTL_BUS_ON succeeds */
+    bool params_on;
+    uint32_t last_param;
+    int stats_calls;
+    int reset_stats_calls;
+    void (*recv_hook)(void *);
+    void *recv_hook_arg;
 
     staged_t live[MAX_FRAMES]; /* Readable now */
     int live_head, live_count;
@@ -178,7 +186,18 @@ esp_err_t can_bus_teardown(void) {
         g.lifecycle_hook();
     g.up = false;
     g.teardown_count++;
-    return ESP_OK;
+    return g.teardown_result;
+}
+
+void fake_can_teardown_result(esp_err_t result) { g.teardown_result = result; }
+void fake_can_allow_bus_on(bool allow) { g.bus_on_ok = allow; }
+void fake_can_enable_params(bool on) { g.params_on = on; }
+int fake_can_stats_calls(void) { return g.stats_calls; }
+int fake_can_reset_stats_calls(void) { return g.reset_stats_calls; }
+
+void fake_can_on_receive(void (*hook)(void *), void *arg) {
+    g.recv_hook = hook;
+    g.recv_hook_arg = arg;
 }
 
 void can_print_stat(void) {}
@@ -346,6 +365,11 @@ static int can_ops_recv(bus_msg_t *msg, TickType_t wait) {
     struct can_frame f;
     size_t len;
 
+    if (g.recv_hook) {
+        void (*hook)(void *) = g.recv_hook;
+        g.recv_hook = NULL;
+        hook(g.recv_hook_arg);
+    }
     if (can_receive(&f, wait) != 0) {
         return BUS_ERR_TIMEOUT;
     }
@@ -369,9 +393,44 @@ static int can_ops_recv(bus_msg_t *msg, TickType_t wait) {
     return (int)len;
 }
 
+/* Only BUS_IOCTL_BUS_ON is known; it is refused until a test allows it. */
+static int can_ops_ioctl(bus_ioctl_t id, const void *in, void *out) {
+    (void)in;
+    (void)out;
+    return id == BUS_IOCTL_BUS_ON && g.bus_on_ok ? 0 : BUS_ERR_UNSUPPORTED;
+}
+
+/* Parameters are refused until a test enables them; then set_param remembers
+ * the value and get_param hands it back. */
+static int can_ops_set_param(bus_param_t p, uint32_t value) {
+    (void)p;
+    if (!g.params_on)
+        return BUS_ERR_UNSUPPORTED;
+    g.last_param = value;
+    return 0;
+}
+
+static int can_ops_get_param(bus_param_t p, uint32_t *out) {
+    (void)p;
+    if (!g.params_on)
+        return BUS_ERR_UNSUPPORTED;
+    *out = g.last_param;
+    return 0;
+}
+
+static void can_ops_get_stats(bus_stats_t *out) {
+    memset(out, 0, sizeof(*out));
+    g.stats_calls++;
+}
+
+static void can_ops_reset_stats(void) { g.reset_stats_calls++; }
+
 static bus_listener_t listener;
 
-const bus_ops_t can_bus_ops = {
+/* Not const, unlike can_bus.c's table: the stats table entries are switched
+ * per test. vif.c sees the same symbol through can_bus.h's const declaration
+ * and only reads it. */
+bus_ops_t can_bus_ops = {
     .name = "CAN",
     .open = can_ops_open,
     .close = can_ops_close,
@@ -379,5 +438,13 @@ const bus_ops_t can_bus_ops = {
     .send_controlled = can_ops_controlled,
     .send_train = can_ops_train,
     .recv = can_ops_recv,
+    .ioctl = can_ops_ioctl,
+    .set_param = can_ops_set_param,
+    .get_param = can_ops_get_param,
     .listener = &listener,
 };
+
+void fake_can_enable_stats(bool on) {
+    can_bus_ops.get_stats = on ? can_ops_get_stats : NULL;
+    can_bus_ops.reset_stats = on ? can_ops_reset_stats : NULL;
+}

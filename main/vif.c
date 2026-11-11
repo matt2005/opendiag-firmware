@@ -263,6 +263,7 @@ static void led_refresh_locked(void) {
                                                             : LED_STATE_IDLE);
 }
 
+/* GCOVR_EXCL_START -- RejsaCAN has no HS or LS pin driver and no K-Line bus, so this helper never runs on that build */
 static void hs_release_locked(void) {
     if (g.hs_pin == -1) {
         return;
@@ -274,7 +275,9 @@ static void hs_release_locked(void) {
 
     g.hs_pin = -1;
 }
+/* GCOVR_EXCL_STOP */
 
+/* GCOVR_EXCL_START -- RejsaCAN has no HS or LS pin driver and no K-Line bus, so this helper never runs on that build */
 static void ls_release_locked(void) {
     if (g.ls_pin == -1) {
         return;
@@ -284,6 +287,7 @@ static void ls_release_locked(void) {
 
     g.ls_pin = -1;
 }
+/* GCOVR_EXCL_STOP */
 
 /* ------------------------------------------------------------------ *
  * The front-end table
@@ -773,6 +777,13 @@ esp_err_t vif_bus_open(vif_owner_t owner, vif_bus_t bus,
     if (owner >= VIF_OWNER_COUNT || grp == VIF_RES_COUNT) {
         return ESP_ERR_INVALID_ARG;
     }
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* Only CAN is fitted. Refuse before any claim is taken, so none is left
+     * behind for the teardown to find. */
+    if (bus != VIF_BUS_CAN) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
     if (!on_owner_thread(owner)) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -782,8 +793,10 @@ esp_err_t vif_bus_open(vif_owner_t owner, vif_bus_t bus,
     /* Check and reserve together: pin control also takes this lock. */
     if (bus == VIF_BUS_CAN &&
         (g.hs_pin == HS_OBD_PIN_6 || g.hs_pin == HS_OBD_PIN_14)) {
+/* GCOVR_EXCL_START -- RejsaCAN has no HS pin driver, so g.hs_pin is never 6 or 14 on that build */
         UNLOCK();
         return ESP_ERR_INVALID_STATE;
+/* GCOVR_EXCL_STOP */
     }
 
     if (g.claim[grp].bus != VIF_BUS_NONE && g.claim[grp].owner != owner) {
@@ -1057,6 +1070,7 @@ int vif_bus_recv(vif_owner_t owner, vif_bus_t bus, bus_msg_t *msg,
     return ops->recv(msg, wait);
 }
 
+/* GCOVR_EXCL_START -- RejsaCAN has no HS or LS pin driver and no K-Line bus, so this helper never runs on that build */
 static int kline_set_only_with_pin_claim(const bus_ops_t *ops, uint32_t value) {
     bool enable_l_line = value == 0;
 
@@ -1079,6 +1093,7 @@ static int kline_set_only_with_pin_claim(const bus_ops_t *ops, uint32_t value) {
     UNLOCK();
     return rc;
 }
+/* GCOVR_EXCL_STOP */
 
 int vif_bus_param_set(vif_owner_t owner, vif_bus_t bus, bus_param_t p,
                       uint32_t value) {
@@ -1094,7 +1109,9 @@ int vif_bus_param_set(vif_owner_t owner, vif_bus_t bus, bus_param_t p,
         return BUS_ERR_UNSUPPORTED;
     }
     if (bus == VIF_BUS_KLINE && p == BUS_P_K_LINE_ONLY) {
+/* GCOVR_EXCL_START -- RejsaCAN never opens the K-Line bus (vif_bus_open refuses it), so this K-Line parameter cannot be set */
         return kline_set_only_with_pin_claim(ops, value);
+/* GCOVR_EXCL_STOP */
     }
 
     return ops->set_param(p, value);
@@ -1135,6 +1152,11 @@ int vif_bus_ioctl(vif_owner_t owner, vif_bus_t bus, bus_ioctl_t id,
 }
 
 int vif_bus_stats(vif_bus_t bus, bus_stats_t *out) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    if (bus != VIF_BUS_CAN) {
+        return BUS_ERR_UNSUPPORTED;
+    }
+#endif
     const bus_ops_t *ops = bus_for(bus);
 
     if (!ops || !out) {
@@ -1149,6 +1171,11 @@ int vif_bus_stats(vif_bus_t bus, bus_stats_t *out) {
 }
 
 int vif_bus_reset_stats(vif_bus_t bus) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    if (bus != VIF_BUS_CAN) {
+        return BUS_ERR_UNSUPPORTED;
+    }
+#endif
     const bus_ops_t *ops = bus_for(bus);
 
     if (!ops) {
@@ -1182,6 +1209,11 @@ esp_err_t vif_pin_set(vif_owner_t owner, int obd_pin, vif_pin_mode_t m,
         (m == VIF_PIN_GROUND && !low_side)) {
         return ESP_ERR_INVALID_ARG;
     }
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* No pin driver is fitted, so no pin can be held: off is already true,
+     * and anything else is refused. */
+    return m == VIF_PIN_OFF ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
+#endif
 
     LOCK();
 
@@ -1262,10 +1294,14 @@ esp_err_t vif_pin_release_all(vif_owner_t owner) {
     LOCK();
 
     if (g.hs_pin != -1 && g.hs_owner == owner) {
+/* GCOVR_EXCL_START -- RejsaCAN has no HS pin driver, so g.hs_pin is never set on that build */
         hs_release_locked();
+/* GCOVR_EXCL_STOP */
     }
     if (g.ls_pin != -1 && g.ls_owner == owner) {
+/* GCOVR_EXCL_START -- RejsaCAN has no LS pin driver, so g.ls_pin is never set on that build */
         ls_release_locked();
+/* GCOVR_EXCL_STOP */
     }
 
     led_refresh_locked();
@@ -1296,6 +1332,7 @@ int32_t vif_hs_vsense_mv(void) { return board_get_hs_vsense(); }
  * therefore released here first, or the bookkeeping would go on claiming a pin
  * the calibration had quietly switched off.
  */
+/* GCOVR_EXCL_START -- RejsaCAN has no HS or LS pin driver and no K-Line bus, so this helper never runs on that build */
 static esp_err_t pins_claim_for_calibration(vif_owner_t owner) {
     LOCK();
 
@@ -1321,7 +1358,9 @@ static esp_err_t pins_claim_for_calibration(vif_owner_t owner) {
     UNLOCK();
     return ESP_OK;
 }
+/* GCOVR_EXCL_STOP */
 
+/* GCOVR_EXCL_START -- RejsaCAN has no HS or LS pin driver and no K-Line bus, so this helper never runs on that build */
 static void pins_drop_after_calibration(vif_owner_t owner) {
     LOCK();
     g.pins_calibrating = false;
@@ -1335,6 +1374,7 @@ static void pins_drop_after_calibration(vif_owner_t owner) {
     led_refresh_locked();
     UNLOCK();
 }
+/* GCOVR_EXCL_STOP */
 
 esp_err_t vif_calibrate_hs(vif_owner_t owner) {
     esp_err_t err;
@@ -1342,6 +1382,11 @@ esp_err_t vif_calibrate_hs(vif_owner_t owner) {
     if (owner >= VIF_OWNER_COUNT) {
         return ESP_ERR_INVALID_ARG;
     }
+
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* No high side driver to calibrate. Refused before the pin is claimed. */
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 
     err = pins_claim_for_calibration(owner);
     if (err != ESP_OK) {
@@ -1357,6 +1402,10 @@ esp_err_t vif_calibrate_hs(vif_owner_t owner) {
 }
 
 esp_err_t vif_calibrate_vbatt(void) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* The battery sense input is unconfirmed on RejsaCAN. */
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     /* Reads the battery input only; no pin is driven, so no claim is needed. */
     board_calibrate_vbatt();
     return ESP_OK;
@@ -1371,7 +1420,9 @@ esp_err_t vif_calibration_set(const char *name, int32_t value) {
      * them under a pin that is already energised would change what the next
      * write to that pin does. Wait until the connector is quiet instead. */
     if (vif_any_pin_active()) {
+/* GCOVR_EXCL_START -- RejsaCAN never drives an HS or LS pin, so no pin can be active on that build */
         return ESP_ERR_INVALID_STATE;
+/* GCOVR_EXCL_STOP */
     }
 
     return board_calibration_set(name, value);

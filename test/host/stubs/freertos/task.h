@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "freertos/FreeRTOS.h"
 
 typedef void *TaskHandle_t;
@@ -20,6 +22,15 @@ int idf_stub_task_starts(void);
 void idf_stub_reset_task_starts(void);
 void idf_stub_set_current_task(TaskHandle_t task);
 void idf_stub_set_created_task(TaskHandle_t task);
+
+/** The function and argument the latest successful xTaskCreate() was given,
+ *  so a test can run the task body itself. NULL after a reset. */
+TaskFunction_t idf_stub_created_task_fn(void);
+void *idf_stub_created_task_param(void);
+/** Makes xTaskCreate() return pdFAIL until the next reset. */
+void idf_stub_fail_task_create(bool fail);
+/** Run @p hook once, inside the next vTaskDelay(). */
+void idf_stub_on_task_delay(void (*hook)(void));
 
 BaseType_t xTaskCreate(TaskFunction_t fn, const char *name,
                        uint32_t stack_depth, void *param, UBaseType_t priority,

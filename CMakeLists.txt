@@ -3,6 +3,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# RejsaCAN v3.4 (CAN only). Default OFF, which is the stock build.
+option(OPENDIAG_BOARD_REJSACAN "Build for the RejsaCAN v3.4 board (CAN only)" OFF)
+if(OPENDIAG_BOARD_REJSACAN)
+    idf_build_set_property(COMPILE_DEFINITIONS "-DOPENDIAG_BOARD_REJSACAN=1" APPEND)
+endif()
+
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
 project(opendiag)

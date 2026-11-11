@@ -22,7 +22,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "can_bus.h"
+#include "esp_err.h"
+
+#include "can_frame.h"
 
 void fake_can_reset(void);
 
@@ -72,6 +74,23 @@ void fake_can_fail_send_after(int sends);
 /** Reports each controlled send as having ended @p lag_us before it returns,
  * as the hardware finishes before the task that collects it hears. */
 void fake_can_tx_end_lag_us(uint32_t lag_us);
+
+/** Makes can_bus_teardown() return @p result (ESP_OK by default). */
+void fake_can_teardown_result(esp_err_t result);
+
+/** Lets the BUS_IOCTL_BUS_ON control through to the driver. Default refused. */
+void fake_can_allow_bus_on(bool allow);
+
+/** Accepts parameter set/get on the driver. Default refused, as in can_bus.c. */
+void fake_can_enable_params(bool on);
+
+/** Installs or removes the get_stats/reset_stats table entries. Default none. */
+void fake_can_enable_stats(bool on);
+int fake_can_stats_calls(void);
+int fake_can_reset_stats_calls(void);
+
+/** Runs @p hook once, before the next receive. */
+void fake_can_on_receive(void (*hook)(void *), void *arg);
 
 /** Makes can_bus_setup() refuse, to exercise a driver that will not start. */
 void fake_can_fail_setup(bool fail);

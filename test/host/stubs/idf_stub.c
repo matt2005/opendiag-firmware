@@ -195,6 +195,10 @@ static struct esp_timer *earliest_timer(void) {
 static int g_task_starts;
 static TaskHandle_t g_current_task;
 static TaskHandle_t g_created_task;
+static TaskFunction_t g_created_fn;
+static void *g_created_param;
+static bool g_fail_create;
+static void (*g_delay_hook)(void);
 
 void idf_stub_set_current_task(TaskHandle_t task) { g_current_task = task; }
 void idf_stub_set_created_task(TaskHandle_t task) { g_created_task = task; }
@@ -202,11 +206,16 @@ void idf_stub_set_created_task(TaskHandle_t task) { g_created_task = task; }
 BaseType_t xTaskCreate(TaskFunction_t fn, const char *name,
                        uint32_t stack_depth, void *param, UBaseType_t priority,
                        TaskHandle_t *created) {
-    (void)fn;
     (void)name;
-    (void)param;
     (void)stack_depth;
     (void)priority;
+
+    if (g_fail_create) {
+        return pdFAIL;
+    }
+
+    g_created_fn = fn;
+    g_created_param = param;
 
     if (created) {
         *created = g_created_task;
@@ -226,11 +235,30 @@ TaskHandle_t xTaskGetCurrentTaskHandle(void) {
     return g_current_task ? g_current_task : &the_one_thread;
 }
 
-void idf_stub_reset_task_starts(void) { g_task_starts = 0; }
+void idf_stub_reset_task_starts(void) {
+    g_task_starts = 0;
+    g_created_fn = NULL;
+    g_created_param = NULL;
+    g_fail_create = false;
+    g_delay_hook = NULL;
+}
+
+TaskFunction_t idf_stub_created_task_fn(void) { return g_created_fn; }
+void *idf_stub_created_task_param(void) { return g_created_param; }
+void idf_stub_fail_task_create(bool fail) { g_fail_create = fail; }
+void idf_stub_on_task_delay(void (*hook)(void)) { g_delay_hook = hook; }
 
 TickType_t xTaskGetTickCount(void) { return (TickType_t)g_now_ms; }
 
-void vTaskDelay(TickType_t ticks) { fake_clock_advance_ms((uint32_t)ticks); }
+void vTaskDelay(TickType_t ticks) {
+    fake_clock_advance_ms((uint32_t)ticks);
+    if (g_delay_hook) {
+        void (*hook)(void) = g_delay_hook;
+
+        g_delay_hook = NULL;
+        hook();
+    }
+}
 
 void vTaskDelete(TaskHandle_t task) {
     /* xTaskCreate() never started anything, so a task deleting itself at the
@@ -287,7 +315,15 @@ uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait) {
                            "notification pending would never return under "
                            "test");
         } else {
+            /* The wait ran out: a hook here stands for whatever arrived while
+             * the task slept, as it does for vTaskDelay(). */
             fake_clock_advance_ms((uint32_t)ticks_to_wait);
+            if (g_delay_hook) {
+                void (*hook)(void) = g_delay_hook;
+
+                g_delay_hook = NULL;
+                hook();
+            }
         }
     }
     if (!g_notify_pending)

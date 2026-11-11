@@ -120,6 +120,18 @@ TEST(id_reports_the_link_its_mode_and_every_mode) {
                     "wrong firmware version in '%s'", out);
 }
 
+TEST(id_names_the_board) {
+    const char *out = ctrl("ID");
+
+#ifdef OPENDIAG_BOARD_REJSACAN
+    TEST_ASSERT_MSG(strstr(out, "OpenDiag RejsaCAN v3.4 ") != NULL,
+                    "wrong board in '%s'", out);
+#else
+    TEST_ASSERT_MSG(strstr(out, "OpenDiag rev1 ") != NULL,
+                    "wrong board in '%s'", out);
+#endif
+}
+
 TEST(an_answer_never_overruns_the_buffer_it_was_given) {
     char small[16];
 
@@ -166,6 +178,7 @@ TEST(an_unknown_mode_is_refused_and_says_what_there_is) {
     TEST_ASSERT_EQUAL_STRING("elm327", vif_link_frontend_name());
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
 TEST(switching_releases_every_claim) {
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_VOLTAGE, 12000);
     vif_bus_open(VIF_OWNER_LINK, VIF_BUS_CAN, &can500);
@@ -183,11 +196,13 @@ TEST(switching_releases_every_claim) {
     TEST_ASSERT_EQUAL_INT(1, fake_can_teardown_count());
     TEST_ASSERT_FALSE(fake_bus_is_up(FAKE_BUS_KLINE));
 }
+#endif
 
 /* ------------------------------------------------------------------ *
  * Reset
  * ------------------------------------------------------------------ */
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
 TEST(reset_releases_the_claims_and_restores_the_default) {
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_VOLTAGE, 12000);
     vif_bus_open(VIF_OWNER_LINK, VIF_BUS_CAN, &can500);
@@ -203,6 +218,7 @@ TEST(reset_releases_the_claims_and_restores_the_default) {
     TEST_ASSERT_FALSE(fake_can_is_up());
     TEST_ASSERT_EQUAL_STRING("elm327", vif_link_frontend_name());
 }
+#endif
 
 TEST(reset_leaves_the_shells_claims_alone) {
     vif_bus_open(VIF_OWNER_SHELL, VIF_BUS_CAN, &can500);
@@ -244,6 +260,7 @@ TEST(a_command_longer_than_the_parser_takes_is_refused_not_overrun) {
  * Reporting what is live
  * ------------------------------------------------------------------ */
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
 TEST(bus_reports_every_live_bus_and_its_holder) {
     TEST_ASSERT_EQUAL_STRING("BUS", ctrl("BUS"));
 
@@ -257,18 +274,22 @@ TEST(bus_reports_every_live_bus_and_its_holder) {
     TEST_ASSERT_MSG(strstr(g_out, "K-Line/link") != NULL,
                     "no K-Line claim in '%s'", g_out);
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
 TEST(bus_names_the_shell_when_the_shell_is_the_holder) {
     vif_bus_open(VIF_OWNER_SHELL, VIF_BUS_KLINE, NULL);
 
     TEST_ASSERT_MSG(strstr(ctrl("BUS"), "K-Line/shell") != NULL,
                     "the shell was not named in '%s'", g_out);
 }
+#endif
 
 /* ------------------------------------------------------------------ *
  * Cleanup that could not finish
  * ------------------------------------------------------------------ */
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
 TEST(reset_reports_failed_cleanup_and_preserves_claim_for_retry) {
     TEST_ASSERT_EQUAL_INT(
         ESP_OK, vif_bus_open(VIF_OWNER_LINK, VIF_BUS_J1850_PWM, NULL));
@@ -285,3 +306,4 @@ TEST(reset_reports_failed_cleanup_and_preserves_claim_for_retry) {
     TEST_ASSERT_EQUAL_INT(VIF_BUS_NONE,
                           vif_bus_current(VIF_OWNER_LINK, VIF_BUS_J1850_PWM));
 }
+#endif

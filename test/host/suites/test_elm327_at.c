@@ -178,6 +178,7 @@ TEST(at_z_returns_settings_to_their_defaults) {
     TEST_ASSERT_EQUAL_STRING("ATDPN\r0\r" ELM_PROMPT, elm_ask("ATDPN\r"));
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_z_releases_only_the_pins_this_client_holds) {
     elm_echo_off();
     elm_ok("ATPROGV6000003E8\r");
@@ -194,6 +195,7 @@ TEST(at_z_releases_only_the_pins_this_client_holds) {
      * AT Z now releases this session's claims and nobody else's. */
     TEST_ASSERT_EQUAL_INT(0, fake_board_reset_count());
 }
+#endif
 
 TEST(at_d_restores_defaults_without_the_reset_delay) {
     elm_echo_off();
@@ -219,6 +221,7 @@ TEST(at_sp_brings_up_the_selected_bus) {
     TEST_ASSERT_TRUE(fake_can_is_up());
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_sp_accepts_every_documented_protocol_number) {
     static const struct {
         const char *cmd;
@@ -242,6 +245,7 @@ TEST(at_sp_accepts_every_documented_protocol_number) {
         TEST_ASSERT_EQUAL_STRING(expect, elm_ask("ATDPN\r"));
     }
 }
+#endif
 
 TEST(at_sp_is_refused_while_the_shell_holds_the_bus) {
     const vif_bus_cfg_t cfg = {.bitrate = 500000};
@@ -343,6 +347,7 @@ TEST(selecting_the_active_protocol_again_does_not_restart_the_bus) {
     TEST_ASSERT_EQUAL_INT(0, fake_can_teardown_count());
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(switching_protocols_tears_the_previous_bus_down_first) {
     elm_echo_off();
 
@@ -353,6 +358,7 @@ TEST(switching_protocols_tears_the_previous_bus_down_first) {
     TEST_ASSERT_FALSE(fake_can_is_up());
     TEST_ASSERT_EQUAL_INT(1, fake_bus_setup_count(FAKE_BUS_J1850_VPW));
 }
+#endif
 
 TEST(returning_to_automatic_keeps_the_bus_as_the_searchs_first_guess) {
     elm_echo_off();
@@ -372,6 +378,7 @@ TEST(returning_to_automatic_keeps_the_bus_as_the_searchs_first_guess) {
     TEST_ASSERT_FALSE(fake_can_is_up());
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_dpn_marks_an_automatically_found_protocol) {
     static const uint8_t reply[] = {0x48, 0x6B, 0x10, 0x41, 0x00, 0xBE, 0x22};
 
@@ -384,7 +391,9 @@ TEST(at_dpn_marks_an_automatically_found_protocol) {
      * named by the client. */
     TEST_ASSERT_EQUAL_STRING("A3\r" ELM_PROMPT, elm_ask("ATDPN\r"));
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_dpn_does_not_mark_a_search_that_found_nothing) {
     elm_echo_off();
 
@@ -395,6 +404,7 @@ TEST(at_dpn_does_not_mark_a_search_that_found_nothing) {
      * report. "A0" would be claiming the search settled on protocol 0. */
     TEST_ASSERT_EQUAL_STRING("0\r" ELM_PROMPT, elm_ask("ATDPN\r"));
 }
+#endif
 
 /* ------------------------------------------------------------------ *
  * Timeout
@@ -489,6 +499,7 @@ TEST(at_sh_rejects_a_header_wider_than_thirty_two_bits) {
  * Battery voltage
  * ------------------------------------------------------------------ */
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_rv_reports_the_battery_voltage_to_one_decimal) {
     elm_echo_off();
 
@@ -498,11 +509,13 @@ TEST(at_rv_reports_the_battery_voltage_to_one_decimal) {
     fake_board_set_vbatt_mv(9040);
     TEST_ASSERT_EQUAL_STRING("9.0V\r" ELM_PROMPT, elm_ask("ATRV\r"));
 }
+#endif
 
 /* ------------------------------------------------------------------ *
  * Programming voltage
  * ------------------------------------------------------------------ */
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_drives_a_high_side_pin) {
     elm_echo_off();
 
@@ -512,7 +525,9 @@ TEST(at_progv_drives_a_high_side_pin) {
     TEST_ASSERT_EQUAL_INT(1, fake_board_hs_boost_en());
     TEST_ASSERT_EQUAL_INT(1, fake_board_hs_state(6));
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_and_can_refuse_conflicting_pins_in_both_orders) {
     elm_echo_off();
     elm_ok("ATSP6\r");
@@ -528,7 +543,9 @@ TEST(at_progv_and_can_refuse_conflicting_pins_in_both_orders) {
     elm_ok("ATPROGVEFFFFFFFF\r");
     elm_ok("ATSP6\r");
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_switches_a_high_side_pin_back_off) {
     elm_echo_off();
     elm_ok("ATPROGV6000003E8\r");
@@ -539,7 +556,9 @@ TEST(at_progv_switches_a_high_side_pin_back_off) {
     TEST_ASSERT_EQUAL_INT(0, fake_board_hs_boost_en());
     TEST_ASSERT_EQUAL_INT(0, fake_board_hs_voltage_mv());
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_shorts_the_low_side_pin_to_ground) {
     elm_echo_off();
 
@@ -548,7 +567,9 @@ TEST(at_progv_shorts_the_low_side_pin_to_ground) {
 
     TEST_ASSERT_EQUAL_INT(1, fake_board_ls_state(15));
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_releases_the_low_side_pin) {
     elm_echo_off();
     elm_ok("ATPROGVFFFFFFFFE\r");
@@ -558,6 +579,7 @@ TEST(at_progv_releases_the_low_side_pin) {
 
     TEST_ASSERT_EQUAL_INT(0, fake_board_ls_state(15));
 }
+#endif
 
 #if OPENDIAG_HW_LS_OBD_9
 TEST(at_progv_grounds_and_releases_pin_9) {
@@ -599,6 +621,7 @@ TEST(at_progv_refuses_a_pin_the_board_cannot_drive) {
     TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, elm_ask("ATPROGV7000003E8\r"));
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_progv_allows_only_one_high_side_pin_at_a_time) {
     elm_echo_off();
     elm_ok("ATPROGV6000003E8\r");
@@ -608,6 +631,7 @@ TEST(at_progv_allows_only_one_high_side_pin_at_a_time) {
     TEST_ASSERT_EQUAL_INT(-1, fake_board_hs_state(9));
     TEST_ASSERT_EQUAL_INT(1, fake_board_hs_state(6));
 }
+#endif
 
 TEST(at_progv_rejects_a_malformed_voltage) {
     elm_echo_off();
@@ -918,6 +942,7 @@ TEST(a_malformed_address_argument_is_rejected) {
     }
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_dp_names_the_protocol) {
     elm_echo_off();
 
@@ -927,6 +952,7 @@ TEST(at_dp_names_the_protocol) {
     elm_ok("ATSP3\r");
     TEST_ASSERT_EQUAL_STRING("ISO 9141-2\r" ELM_PROMPT, elm_ask("ATDP\r"));
 }
+#endif
 
 TEST(at_dp_marks_a_protocol_that_was_searched_for) {
     elm_echo_off();
@@ -951,6 +977,7 @@ TEST(at_ws_identifies_without_the_reset_delay) {
     TEST_ASSERT_FALSE(g_elm->settings.show_header);
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_pc_closes_the_protocol) {
     elm_echo_off();
     elm_ok("ATSP1\r");
@@ -960,7 +987,9 @@ TEST(at_pc_closes_the_protocol) {
     TEST_ASSERT_FALSE(fake_bus_is_up(FAKE_BUS_J1850_PWM));
     TEST_ASSERT_EQUAL_STRING("0\r" ELM_PROMPT, elm_ask("ATDPN\r"));
 }
+#endif
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(at_r0_sends_the_request_and_does_not_wait) {
     static const uint8_t pwm_reply[10] = {0x41, 0x6B, 0x10, 0x41, 0x00,
                                           0xBE, 0x3F, 0xB8, 0x13, 0xC4};
@@ -975,6 +1004,7 @@ TEST(at_r0_sends_the_request_and_does_not_wait) {
     TEST_ASSERT_EQUAL_STRING(ELM_PROMPT, elm_ask("01001\r"));
     TEST_ASSERT_EQUAL_INT(1, fake_bus_sent_count(FAKE_BUS_J1850_PWM));
 }
+#endif
 
 TEST(at_sh_rejects_a_width_no_protocol_uses) {
     static const char *const cmds[] = {
@@ -1150,6 +1180,7 @@ TEST(the_settings_a_client_chose_leave_with_it) {
     TEST_ASSERT_EQUAL_INT(0, (int)g_elm->settings.linefeed);
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(a_kwp_session_ends_when_the_client_that_opened_it_leaves) {
     elm_echo_off();
     elm_kline_select("ATSP5\r");
@@ -1171,6 +1202,7 @@ TEST(a_kwp_session_ends_when_the_client_that_opened_it_leaves) {
      */
     TEST_ASSERT_EQUAL_INT(1, fake_bus_stop_comm_count());
 }
+#endif
 
 TEST(a_client_leaving_a_protocol_with_no_session_says_nothing) {
     elm_echo_off();
@@ -1183,6 +1215,7 @@ TEST(a_client_leaving_a_protocol_with_no_session_says_nothing) {
     TEST_ASSERT_EQUAL_INT(0, fake_bus_stop_comm_count());
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN /* K-Line, J1850 or pin driver: not fitted on RejsaCAN */
 TEST(a_client_leaving_ends_the_session_and_lets_the_bus_go) {
     elm_echo_off();
     elm_kline_select("ATSP5\r");
@@ -1198,6 +1231,7 @@ TEST(a_client_leaving_ends_the_session_and_lets_the_bus_go) {
     TEST_ASSERT_EQUAL_INT(VIF_BUS_NONE,
                           vif_bus_current(VIF_OWNER_LINK, VIF_BUS_KLINE));
 }
+#endif
 
 /* ------------------------------------------------------------------ *
  * A reset loses what was in flight when it ran
@@ -1247,3 +1281,32 @@ TEST(one_write_of_several_commands_is_still_answered_in_full) {
                              "OK\r" ELM_PROMPT,
                              fake_port_text(0));
 }
+
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* RejsaCAN has no J1850 or K-Line transceiver, so AT DP can only name the
+ * CAN protocols it can select. This pins the names of the ones the stock
+ * build's tests never ask for. */
+TEST(at_dp_names_the_can_protocols_rejsacan_can_select) {
+    elm_echo_off();
+
+    elm_ok("ATSP8\r");
+    TEST_ASSERT_EQUAL_STRING("ISO 15765-4 (CAN 11/250)\r" ELM_PROMPT,
+                             elm_ask("ATDP\r"));
+
+    elm_ok("ATSP9\r");
+    TEST_ASSERT_EQUAL_STRING("ISO 15765-4 (CAN 29/250)\r" ELM_PROMPT,
+                             elm_ask("ATDP\r"));
+
+    elm_ok("ATSPA\r");
+    TEST_ASSERT_EQUAL_STRING("SAE J1939 (CAN 29/250)\r" ELM_PROMPT,
+                             elm_ask("ATDP\r"));
+
+    elm_ok("ATSPB\r");
+    TEST_ASSERT_EQUAL_STRING("USER1 (CAN 11/125)\r" ELM_PROMPT,
+                             elm_ask("ATDP\r"));
+
+    elm_ok("ATSPC\r");
+    TEST_ASSERT_EQUAL_STRING("USER2 (CAN 11/50)\r" ELM_PROMPT,
+                             elm_ask("ATDP\r"));
+}
+#endif

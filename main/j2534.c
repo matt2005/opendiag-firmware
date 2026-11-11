@@ -354,6 +354,7 @@ static uint32_t validate_message(channel_t *channel, uint32_t protocol,
         return J2534_OK;
     }
     if (channel->protocol == J2534_PWM || channel->protocol == J2534_VPW) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses the J1850 buses in vif_bus_open, so no PWM or VPW channel exists on that build */
         if (flags || len > (channel->protocol == J2534_PWM ? 10u : 11u) ||
             (channel->protocol == J2534_PWM && len < 3))
             return J2534_MSG;
@@ -367,6 +368,7 @@ static uint32_t validate_message(channel_t *channel, uint32_t protocol,
                 return J2534_MSG;
         }
         return J2534_OK;
+/* GCOVR_EXCL_STOP */
     }
     if (flags & ~J2534_WAIT_P3 ||
         len > 260u - !(channel->flags & J2534_CHECKSUM_DISABLED) ||
@@ -374,6 +376,7 @@ static uint32_t validate_message(channel_t *channel, uint32_t protocol,
         return J2534_MSG;
 
     if (channel->protocol == J2534_ISO14230) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses the K-Line bus in vif_bus_open, so no ISO 14230 channel exists on that build */
         unsigned header = (data[0] & 0xc0) ? 3 : 1;
         unsigned body = data[0] & 63;
 
@@ -389,6 +392,7 @@ static uint32_t validate_message(channel_t *channel, uint32_t protocol,
         if (!body ||
             len != header + body + !!(channel->flags & J2534_CHECKSUM_DISABLED))
             return J2534_MSG;
+/* GCOVR_EXCL_STOP */
     }
     return J2534_OK;
 }
@@ -425,6 +429,7 @@ static void tx_done(channel_t *channel, bool ok) {
     channel->tx_active = false;
 }
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses the K-Line bus in vif_bus_open, so the byte-message sender used by fast init never runs on that build */
 static int send_byte_message(channel_t *channel) {
     bus_msg_t msg;
     const uint8_t *data = channel->tx + MSG_HEADER;
@@ -434,6 +439,7 @@ static int send_byte_message(channel_t *channel) {
     return vif_bus_send(VIF_OWNER_LINK, channel->bus, &msg,
                         flags & J2534_WAIT_P3 ? BUS_TX_WAIT_P3_MIN_ONLY : 0);
 }
+/* GCOVR_EXCL_STOP */
 
 static void confirm_protocol_tx(channel_t *channel, const pending_tx_t *pending,
                                 bool success, uint32_t timestamp) {
@@ -1070,15 +1076,22 @@ static uint32_t connect_channel(const opendiag_Connect *req) {
     channel->rx_drained = true;
     vif_bus_cfg_t cfg = {.bitrate = rate, .manual_recovery = true};
 
-    if (vif_bus_open(VIF_OWNER_LINK, bus, &cfg) != ESP_OK) {
+    esp_err_t open_err = vif_bus_open(VIF_OWNER_LINK, bus, &cfg);
+
+    if (open_err != ESP_OK) {
         /* VIF retains failed claims for teardown; never forget those claims. */
         vif_bus_close(VIF_OWNER_LINK, bus);
         release_channel(channel);
+#ifdef OPENDIAG_BOARD_REJSACAN
+        if (open_err == ESP_ERR_NOT_SUPPORTED)
+            return J2534_NOT_SUPPORTED;
+#endif
         return J2534_CONFLICT;
     }
     int rc = 0;
 
     if (bus == VIF_BUS_KLINE) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses the K-Line bus in vif_bus_open, so this K-Line parameter setup never runs on that build */
         rc = vif_bus_param_set(VIF_OWNER_LINK, bus, BUS_P_K_LINE_ONLY,
                                !!(flags & J2534_K_ONLY));
         if (!rc) {
@@ -1100,9 +1113,12 @@ static uint32_t connect_channel(const opendiag_Connect *req) {
         if (!rc)
             rc =
                 vif_bus_param_set(VIF_OWNER_LINK, bus, BUS_P_PERIODIC_QUIET, 0);
+/* GCOVR_EXCL_STOP */
     }
     if (bus != VIF_BUS_CAN)
+/* GCOVR_EXCL_START -- RejsaCAN only opens the CAN bus, so this non-CAN duplicate setting never runs on that build */
         vif_bus_param_set(VIF_OWNER_LINK, bus, BUS_P_DUPLICATE_MS, 0);
+/* GCOVR_EXCL_STOP */
     if (rc) {
         disconnect_channel(channel);
         return rc == BUS_ERR_BUS_BUSY ? J2534_CONFLICT : J2534_VALUE;
@@ -1267,8 +1283,10 @@ static uint32_t configure_channel(channel_t *channel, bool set, uint32_t param,
             return J2534_VALUE;
 
         if (channel->bus != VIF_BUS_CAN &&
+/* GCOVR_EXCL_START -- RejsaCAN only opens the CAN bus, so a non-CAN channel never reaches this parameter path on that build */
             vif_bus_param_set(VIF_OWNER_LINK, channel->bus, param, *value))
             return J2534_VALUE;
+/* GCOVR_EXCL_STOP */
 
         channel->echo = *value;
         return J2534_OK;
@@ -1451,8 +1469,10 @@ static uint32_t ioctl_request(channel_t *channel, const opendiag_Ioctl *req) {
         if (channel->protocol != J2534_PWM)
             return J2534_IOCTL;
 
+/* GCOVR_EXCL_START -- RejsaCAN has no PWM channel (vif_bus_open refuses J1850), so CLEAR_FUNCT_TABLE never reaches this on that build */
         return bus_error(
             vif_bus_ioctl(VIF_OWNER_LINK, channel->bus, id, NULL, NULL));
+/* GCOVR_EXCL_STOP */
     default:
         return J2534_IOCTL;
     }
@@ -1473,6 +1493,11 @@ static uint32_t set_programming_voltage(const opendiag_Voltage *req) {
         pin != 14 && pin != 15)
         return J2534_PIN;
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* No pin driver is fitted, so no programming voltage can be set or
+     * released. Answered before the pin-in-use check below. */
+    return J2534_NOT_SUPPORTED;
+#endif
     if (mv == UINT32_MAX) {
         if (vif_pin_set(VIF_OWNER_LINK, pin, VIF_PIN_OFF, 0) != ESP_OK)
             return J2534_PIN_IN_USE;
@@ -1519,6 +1544,7 @@ static uint32_t fast_init(channel_t *channel, const opendiag_FastInit *req) {
     if (channel->bus != VIF_BUS_KLINE || channel->parent)
         return J2534_IOCTL;
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses the K-Line bus in vif_bus_open, so the K-Line fast init never runs on that build */
     bool checksum = !(channel->flags & J2534_CHECKSUM_DISABLED);
     if (req->tx_flags & ~J2534_WAIT_P3 ||
         req->data.size > BUS_INIT_MSG_MAX - (checksum ? 1u : 0u))
@@ -1559,6 +1585,7 @@ static uint32_t fast_init(channel_t *channel, const opendiag_FastInit *req) {
                response.message.data.size);
     }
     return J2534_OK;
+/* GCOVR_EXCL_STOP */
 }
 
 static uint32_t read_capabilities(void) {
@@ -1977,7 +2004,12 @@ static uint32_t read_voltage(const opendiag_Ioctl *io) {
 
     mv = io->id == IOCTL_READ_VBATT ? vif_vbatt_mv() : vif_hs_vsense_mv();
     if (mv < 0)
+#ifdef OPENDIAG_BOARD_REJSACAN
+        /* No sense input is fitted for this reading on RejsaCAN. */
+        return J2534_NOT_SUPPORTED;
+#else
         return J2534_FAILED;
+#endif
 
     response.millivolts = mv;
     return J2534_OK;

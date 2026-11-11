@@ -397,7 +397,9 @@ void app_main(void) {
     button_init();
 
     /* Setup WS2812 status led */
+#ifndef OPENDIAG_BOARD_REJSACAN /* GPIO 48 is not an LED on RejsaCAN */
     ws2812_led_init();
+#endif
     ws2812_led_set_state(LED_STATE_IDLE);
 
     /*

@@ -1177,3 +1177,18 @@ TEST(failed_flow_control_keeps_can_open_for_the_next_request) {
     TEST_ASSERT_EQUAL_INT(teardowns, fake_can_teardown_count());
     TEST_ASSERT_EQUAL_HEX32(CAN_EFF_FLAG | 0x0CDA10F1, fake_can_sent(1)->id);
 }
+
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* The RejsaCAN has only CAN: a K-Line or J1850 protocol is refused with "?",
+ * and the CAN session that is already up keeps answering. */
+TEST(a_non_can_protocol_is_refused_and_the_can_session_is_kept) {
+    on_can_11bit();
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, elm_ask("ATSP3\r"));
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, elm_ask("ATSP5\r"));
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, elm_ask("ATSP1\r"));
+
+    fake_can_stage_response(0x7E8, 8, supported_pids, 6);
+    TEST_ASSERT_EQUAL_STRING("7E8 06 41 00 BE 3F B8 13 00 \r" ELM_PROMPT,
+                             elm_ask("0100\r"));
+}
+#endif

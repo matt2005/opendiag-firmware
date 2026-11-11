@@ -73,9 +73,17 @@ uint8_t board_get_button_state(void) { return 0; }
 
 uint8_t board_get_boardid(void) { return 1; }
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* The real board has no confirmed battery sense input and no HS sense input,
+ * so neither reads back. */
+int32_t board_get_vbatt(void) { return -1; }
+
+int32_t board_get_hs_vsense(void) { return -1; }
+#else
 int32_t board_get_vbatt(void) { return g.vbatt_mv; }
 
 int32_t board_get_hs_vsense(void) { return 0; }
+#endif
 
 void board_hs_ls_reset_state(void) {
     g.reset_count++;
@@ -89,6 +97,22 @@ void board_hs_ls_reset_state(void) {
     g.hs_voltage_mv = 0;
 }
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* No OBD drivers on RejsaCAN: the HS and LS controls do nothing. */
+void board_set_hs_boost_en(int state) { (void)state; }
+
+void board_set_hs_voltage(uint32_t mvolt) { (void)mvolt; }
+
+void board_set_hs_state(enum hs_pin pin, int state) {
+    (void)pin;
+    (void)state;
+}
+
+void board_set_ls_state(enum ls_pin pin, int state) {
+    (void)pin;
+    (void)state;
+}
+#else
 void board_set_hs_boost_en(int state) { g.hs_boost_en = state; }
 
 void board_set_hs_voltage(uint32_t mvolt) { g.hs_voltage_mv = mvolt; }
@@ -104,6 +128,7 @@ void board_set_ls_state(enum ls_pin pin, int state) {
         g.ls_state[(int)pin] = state;
     }
 }
+#endif
 
 void board_calibrate_hs(void) {
     if (g.calibration_hook) {

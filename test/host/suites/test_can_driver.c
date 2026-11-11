@@ -30,7 +30,10 @@ static bool tx_unsuccessful;
 /* The transmission attempt (from 1) that fails; 0 for none. */
 static unsigned fail_wire_frame;
 static bool complete_on_poll;
-static int silent, silent1 = -1;
+static int silent;
+#ifndef OPENDIAG_BOARD_REJSACAN /* no AUX_CAN transceiver */
+static int silent1 = -1;
+#endif
 static twai_onchip_node_config_t last_cfg;
 static twai_event_callbacks_t callbacks;
 static int node_token;
@@ -50,8 +53,10 @@ static uint32_t last_wire_id;
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t value) {
     if (pin == PIN_CAN0_SILENT)
         silent = value;
+#ifndef OPENDIAG_BOARD_REJSACAN
     if (pin == PIN_CAN1_SILENT)
         silent1 = value;
+#endif
     return ESP_OK;
 }
 esp_err_t twai_new_node_onchip(const twai_onchip_node_config_t *cfg,
@@ -210,6 +215,7 @@ TEST(listen_only_open_keeps_the_transceiver_silent_and_refuses_to_send) {
     TEST_ASSERT_EQUAL_INT(0, silent);
 }
 
+#ifndef OPENDIAG_BOARD_REJSACAN
 TEST(aux_port_uses_can1_pins_and_never_transmits) {
     TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_use_aux(true));
     TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_setup(500000)); /* a normal open */
@@ -230,6 +236,21 @@ TEST(aux_port_uses_can1_pins_and_never_transmits) {
     TEST_ASSERT_FALSE(last_cfg.flags.enable_listen_only);
     TEST_ASSERT_EQUAL_INT(0, silent);
 }
+#else
+/* RejsaCAN has one transceiver, on the OBD socket: AUX is refused and the
+ * request leaves the OBD port as it was. */
+TEST(aux_is_refused_on_rejsacan_and_the_obd_port_still_opens) {
+    TEST_ASSERT_EQUAL_INT(ESP_ERR_NOT_SUPPORTED, can_bus_use_aux(true));
+    TEST_ASSERT_FALSE(can_bus_aux());
+    TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_use_aux(false));
+    TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_setup(500000));
+    TEST_ASSERT_EQUAL_INT(PIN_CAN0_TX, last_cfg.io_cfg.tx);
+    TEST_ASSERT_EQUAL_INT(PIN_CAN0_RX, last_cfg.io_cfg.rx);
+    TEST_ASSERT_FALSE(last_cfg.flags.enable_listen_only);
+    TEST_ASSERT_EQUAL_INT(0, silent);
+    TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_teardown());
+}
+#endif
 
 TEST(can_worker_timeout_retains_resources_until_late_acknowledgement) {
     TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_setup(500000));

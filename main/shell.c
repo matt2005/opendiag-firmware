@@ -289,6 +289,10 @@ static void vbatt_command(int argc, char **argv) {
  * Display the ADC reading for high side voltage sense.
  */
 static void hsvsense_command(int argc, char **argv) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    printf("ERROR: %s\n", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return;
+#endif
     int32_t val = vif_hs_vsense_mv();
     printf("HS VSENSE: %" PRId32 " mV\n", val);
 }

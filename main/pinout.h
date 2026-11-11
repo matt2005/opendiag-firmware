@@ -2,15 +2,24 @@
 #pragma once
 
 /* CAN0 Transceiver */
+#ifdef OPENDIAG_BOARD_REJSACAN
+/* RejsaCAN v3.4: the OBD socket transceiver, RS is active high (standby). */
+#define PIN_CAN0_TX 14
+#define PIN_CAN0_RX 13
+#define PIN_CAN0_SILENT 38 /* Active High */
+#else
 #define PIN_CAN0_TX 4
 #define PIN_CAN0_RX 5
 #define PIN_CAN0_SILENT 8 /* Active High */
+#endif
 
 /* CAN1 Transceiver (TJA1051T-3 U6, AUX_CAN header J3: 1 = H, 2 = L, 3 = GND,
  * no termination fitted) */
+#ifndef OPENDIAG_BOARD_REJSACAN /* RejsaCAN has no AUX_CAN header */
 #define PIN_CAN1_TX 6
 #define PIN_CAN1_RX 7
 #define PIN_CAN1_SILENT 47 /* Active High, same part as CAN0 */
+#endif
 
 /* K-Line Transceiver */
 #define PIN_KLINE_TX 17

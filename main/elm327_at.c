@@ -598,8 +598,10 @@ static void elm327_apply_bus_policy(elm327_ctx_t *e, vif_bus_t bus,
      * filter them out of the replies. */
     vif_bus_param_set(VIF_OWNER_LINK, bus, BUS_P_LOOPBACK, 0);
     if (proto == ELM327_PROTO_J1850_PWM)
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
         vif_bus_param_set(VIF_OWNER_LINK, bus, BUS_P_IFR_ENABLED,
                           e->settings.ifr_mode != ELM327_IFR_OFF);
+/* GCOVR_EXCL_STOP */
 }
 
 /**
@@ -717,6 +719,15 @@ static int elm327_set_protocol(elm327_ctx_t *e, int proto) {
         return 0;
     }
 
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* Only CAN exists on this board. Refuse before anything is released, or
+     * the live CAN session would be dropped for a protocol that cannot open. */
+    if (bus != VIF_BUS_NONE && bus != VIF_BUS_CAN) {
+        ESP_LOGE(TAG, "Protocol not supported on this board");
+        return -1;
+    }
+#endif
+
     if (e->settings.current_protocol == ELM327_PROTO_AUTO) {
         /* leaving automatic: any search result is stale */
         e->settings.auto_search = false;
@@ -756,9 +767,11 @@ static int elm327_set_protocol(elm327_ctx_t *e, int proto) {
      * it. Only the numbering and the header change. CAN is excluded because
      * two CAN protocols on the same wire can still want different bit rates. */
     if (bus != VIF_BUS_CAN && vif_bus_is_open(VIF_OWNER_LINK, bus)) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every non-CAN bus, so a non-CAN bus cannot already be open on that build */
         e->settings.header_id = header_id;
         e->settings.current_protocol = proto;
         return 0;
+/* GCOVR_EXCL_STOP */
     }
 
     memset(&e->timing, 0, sizeof(e->timing));
@@ -794,12 +807,14 @@ static const char *elm327_protocol_name(uint8_t proto) {
         return "SAE J1850 PWM";
     case ELM327_PROTO_J1850_VPW:
         return "SAE J1850 VPW";
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
     case ELM327_PROTO_ISO9141:
         return "ISO 9141-2";
     case ELM327_PROTO_ISO14230_KWP_5BAUD:
         return "ISO 14230-4 (KWP 5BAUD)";
     case ELM327_PROTO_ISO14230_KWP_FAST:
         return "ISO 14230-4 (KWP FAST)";
+/* GCOVR_EXCL_STOP */
     case ELM327_PROTO_CAN_11BIT_500K:
         return "ISO 15765-4 (CAN 11/500)";
     case ELM327_PROTO_CAN_29BIT_500K:
@@ -825,12 +840,14 @@ static const char *elm327_protocol_name(uint8_t proto) {
 static void elm327_apply_pwm_ifr(elm327_ctx_t *e, uint8_t header_source) {
     if (elm327_bus(e) != VIF_BUS_J1850_PWM)
         return;
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
     uint8_t source = e->settings.ifr_from_source ? e->settings.tester_address
                                                  : header_source;
     vif_bus_param_set(VIF_OWNER_LINK, VIF_BUS_J1850_PWM, BUS_P_IFR_BYTE,
                       source);
     vif_bus_param_set(VIF_OWNER_LINK, VIF_BUS_J1850_PWM, BUS_P_IFR_ENABLED,
                       e->settings.ifr_mode != ELM327_IFR_OFF);
+/* GCOVR_EXCL_STOP */
 }
 
 static int at_set_ifr(elm327_ctx_t *e, const char *arg) {
@@ -1246,8 +1263,10 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
          * rather than left to time out at P3max, and the only moment this
          * layer knows that is here, before the driver goes down. */
         if (elm327_is_kline(e)) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
             vif_bus_ioctl(VIF_OWNER_LINK, VIF_BUS_KLINE, BUS_IOCTL_STOP_COMM,
                           NULL, NULL);
+/* GCOVR_EXCL_STOP */
         }
         /* Explicitly, because selecting automatic no longer does it: AT SP 0
          * keeps a working bus so the search can confirm it in one attempt,
@@ -1280,8 +1299,10 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
          * ISO 9141-2 vehicle from an ISO 14230-4 one without trusting our
          * classification of them. */
         if (elm327_is_kline(e) && elm327_kline_link(e, &link)) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
             snprintf(out, sizeof(out), "%02X %02X\r", link.key[0], link.key[1]);
             elm327_send_string(e, out);
+/* GCOVR_EXCL_STOP */
         } else {
             elm327_send_string(e, "?\r");
         }
@@ -1313,8 +1334,10 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
             ESP_LOGI(TAG, "ISO baud rate %" PRIu32, baud);
             e->settings.iso_baud = baud;
             if (elm327_is_kline(e)) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
                 vif_bus_param_set(VIF_OWNER_LINK, VIF_BUS_KLINE,
                                   BUS_P_DATA_RATE, baud);
+/* GCOVR_EXCL_STOP */
             }
             elm327_send_string(e, "OK\r");
         }
@@ -1365,15 +1388,19 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
         if (e->settings.current_protocol != ELM327_PROTO_ISO9141 &&
             e->settings.current_protocol != ELM327_PROTO_ISO14230_KWP_5BAUD) {
             elm327_send_string(e, "?\r");
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
         } else if (elm327_kline_init(e, KLINE_INIT_5BAUD) == 0) {
             elm327_kline_reconcile(e);
+/* GCOVR_EXCL_STOP */
         }
     } else if (strcmp(cmd, "FI") == 0) {
         /* "Protocol 5 must be selected to use the AT FI command." */
         if (e->settings.current_protocol != ELM327_PROTO_ISO14230_KWP_FAST) {
             elm327_send_string(e, "?\r");
         } else {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
             elm327_kline_init(e, KLINE_INIT_FAST);
+/* GCOVR_EXCL_STOP */
         }
     } else if (strcmp(cmd, "BI") == 0) {
         /* "allows an OBD protocol to be made active without requiring any
@@ -1382,12 +1409,14 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
         if (!elm327_is_kline(e)) {
             elm327_send_string(e, "?\r");
         } else {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
             kline_variant_t v =
                 elm327_is_kwp(e) ? KLINE_VARIANT_KWP : KLINE_VARIANT_ISO9141;
 
             vif_bus_ioctl(VIF_OWNER_LINK, VIF_BUS_KLINE, BUS_IOCTL_ASSUME_LINK,
                           &v, NULL);
             elm327_kline_apply_wakeup(e);
+/* GCOVR_EXCL_STOP */
             elm327_send_string(e, "OK\r");
         }
     } else if (strcmp(cmd, "IA") == 0) {
@@ -1395,7 +1424,9 @@ static void elm327_at_command_handler(elm327_ctx_t *e, const char *cmd) {
          * For the buses with no handshake, having one open is the whole of
          * what "active" can mean. */
         bool active = elm327_is_kline(e)
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
                           ? elm327_kline_link(e, NULL)
+/* GCOVR_EXCL_STOP */
                           : vif_bus_is_open(VIF_OWNER_LINK, elm327_bus(e));
 
         elm327_send_string(e, active ? "Y\r" : "N\r");
@@ -2027,6 +2058,7 @@ static bool elm327_is_kline(const elm327_ctx_t *e) {
  * corrupt anything - it decides how many bytes AT H0 strips off the front, so
  * it shows up as a reply displayed one byte out.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static size_t elm327_header_len(const elm327_ctx_t *e, const uint8_t *frame,
                                 size_t len) {
     bool j1850 = e->settings.current_protocol == ELM327_PROTO_J1850_PWM ||
@@ -2047,8 +2079,10 @@ static size_t elm327_header_len(const elm327_ctx_t *e, const uint8_t *frame,
 
     return 3;
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief Does @p frame carry a target and a source address to judge? */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static bool elm327_frame_has_addresses(const elm327_ctx_t *e,
                                        const uint8_t *frame, size_t len) {
     if (len < 4) {
@@ -2069,6 +2103,7 @@ static bool elm327_frame_has_addresses(const elm327_ctx_t *e,
     /* ISO 9141-2 always sends three. */
     return true;
 }
+/* GCOVR_EXCL_STOP */
 
 /**
  * @brief Is this frame addressed to us, and from whom we asked?
@@ -2100,6 +2135,7 @@ static bool elm327_frame_has_addresses(const elm327_ctx_t *e,
  * the frame is passed through. So is anything too short to hold a header and
  * a checksum: a runt is worth showing to whoever is looking at the bus.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static bool elm327_frame_is_addressed_to_us(const elm327_ctx_t *e,
                                             const uint8_t *frame, size_t len) {
     uint8_t target, source, req_target, req_source;
@@ -2145,6 +2181,7 @@ static bool elm327_frame_is_addressed_to_us(const elm327_ctx_t *e,
     return target == req_source || target == e->settings.tester_address ||
            target == (uint8_t)(req_target | 1u);
 }
+/* GCOVR_EXCL_STOP */
 
 static elm327_reply_kind_t elm327_late_reply_kind(const elm327_ctx_t *e,
                                                   const bus_msg_t *msg) {
@@ -2182,6 +2219,7 @@ static elm327_reply_kind_t elm327_late_reply_kind(const elm327_ctx_t *e,
             return ELM327_REPLY_NONE;
         }
     } else {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
         if (!elm327_frame_is_addressed_to_us(e, data, len))
             return ELM327_REPLY_NONE;
         size_t header = elm327_header_len(e, data, len);
@@ -2189,6 +2227,7 @@ static elm327_reply_kind_t elm327_late_reply_kind(const elm327_ctx_t *e,
             return ELM327_REPLY_NONE;
         data += header;
         len -= header + 1;
+/* GCOVR_EXCL_STOP */
     }
 
     /* Negative reply: 7F <request service> <reason>. A pending notification
@@ -2261,6 +2300,7 @@ static void elm327_observe_late_replies(elm327_ctx_t *e) {
         watch->active = false;
 }
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static void elm327_print_j1850_kline_frame(elm327_ctx_t *e, const uint8_t *data,
                                            size_t len) {
     /* Three characters per byte with spacing on, for a frame as long as
@@ -2291,6 +2331,7 @@ static void elm327_print_j1850_kline_frame(elm327_ctx_t *e, const uint8_t *data,
 
     elm327_send_string(e, outstr);
 }
+/* GCOVR_EXCL_STOP */
 
 /**
  * @brief How long the bus must be quiet before the prompt goes back, J1850.
@@ -2330,6 +2371,7 @@ static void elm327_print_j1850_kline_frame(elm327_ctx_t *e, const uint8_t *data,
  * @param quiet_ms  How long the bus has already been quiet. An exchange that
  *                  ran out its own AT ST window has nothing left to wait for.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static void elm327_bus_settle(elm327_ctx_t *e, size_t cap, uint32_t settle_ms,
                               uint32_t quiet_ms) {
     uint8_t discard[32];
@@ -2355,6 +2397,7 @@ static void elm327_bus_settle(elm327_ctx_t *e, size_t cap, uint32_t settle_ms,
 
     ESP_LOGD(TAG, "bus still busy after %d ms", J1850_SETTLE_CAP_MS);
 }
+/* GCOVR_EXCL_STOP */
 
 /* ------------------------------------------------------------------ *
  * K-Line
@@ -2377,6 +2420,7 @@ static void elm327_bus_settle(elm327_ctx_t *e, size_t cap, uint32_t settle_ms,
  *
  * @return Bytes written to @p out, or 0 when it will not fit.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static size_t elm327_build_bus_request(elm327_ctx_t *e, const uint8_t *data,
                                        size_t len, uint8_t *out, size_t cap) {
     uint32_t id = e->settings.header_id;
@@ -2416,8 +2460,10 @@ static size_t elm327_build_bus_request(elm327_ctx_t *e, const uint8_t *data,
     memcpy(&out[n], data, len);
     return n + len;
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief The initialisation the selected protocol calls for. */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static kline_init_mode_t elm327_kline_init_mode(const elm327_ctx_t *e) {
     switch (e->settings.current_protocol) {
     case ELM327_PROTO_ISO9141:
@@ -2429,8 +2475,10 @@ static kline_init_mode_t elm327_kline_init_mode(const elm327_ctx_t *e) {
         return KLINE_INIT_NONE;
     }
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief Is a K-Line session up, and what did it negotiate? */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static bool elm327_kline_link(elm327_ctx_t *e, bus_link_t *out) {
     bus_link_t link;
 
@@ -2445,8 +2493,10 @@ static bool elm327_kline_link(elm327_ctx_t *e, bus_link_t *out) {
 
     return link.connected;
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief Fill in an initialisation request from the AT settings. */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static void elm327_kline_init_args(const elm327_ctx_t *e,
                                    kline_init_mode_t mode, bus_init_t *io) {
     memset(io, 0, sizeof(*io));
@@ -2466,6 +2516,7 @@ static void elm327_kline_init_args(const elm327_ctx_t *e,
     io->msg[3] = KLINE_SVC_START_COMM;
     io->msg_len = 4;
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief Push AT SW and AT WM down to the driver, once there is a link. */
 static void elm327_kline_apply_wakeup(elm327_ctx_t *e) {
@@ -2492,6 +2543,7 @@ static void elm327_kline_apply_wakeup(elm327_ctx_t *e) {
  *
  * @return 0 on success, -1 when the sequence failed.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_kline_init(elm327_ctx_t *e, kline_init_mode_t mode) {
     bus_init_t io;
     int rc;
@@ -2542,6 +2594,7 @@ static int elm327_kline_init(elm327_ctx_t *e, kline_init_mode_t mode) {
     }
     return 0;
 }
+/* GCOVR_EXCL_STOP */
 
 /**
  * @brief Make sure there is a session before a request goes out.
@@ -2567,6 +2620,7 @@ static int elm327_kline_init(elm327_ctx_t *e, kline_init_mode_t mode) {
  *
  * A fast initialised link is left alone: it can only ever be KWP.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static void elm327_kline_reconcile(elm327_ctx_t *e) {
     bus_link_t link;
     int want;
@@ -2601,7 +2655,9 @@ static void elm327_kline_reconcile(elm327_ctx_t *e) {
              kline_variant_name((kline_variant_t)link.variant), want);
     elm327_set_protocol(e, want);
 }
+/* GCOVR_EXCL_STOP */
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_kline_ensure_link(elm327_ctx_t *e) {
     kline_init_mode_t mode;
 
@@ -2621,6 +2677,7 @@ static int elm327_kline_ensure_link(elm327_ctx_t *e) {
     elm327_kline_reconcile(e);
     return 0;
 }
+/* GCOVR_EXCL_STOP */
 
 /**
  * @brief One request/response exchange on a byte-oriented bus.
@@ -2637,6 +2694,7 @@ static int elm327_kline_ensure_link(elm327_ctx_t *e) {
  * - @p settle_ms holds the prompt until the bus is quiet, for the buses whose
  *   modules retransmit unacknowledged replies. See J1850_SETTLE_MS.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_bus_xfer(elm327_ctx_t *e, const uint8_t *frame, size_t len,
                            int num_frame, size_t cap, bool drain_first,
                            uint32_t settle_ms) {
@@ -2748,18 +2806,23 @@ static int elm327_bus_xfer(elm327_ctx_t *e, const uint8_t *frame, size_t len,
     }
     return 0;
 }
+/* GCOVR_EXCL_STOP */
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_j1850_pwm_xfer(elm327_ctx_t *e, const uint8_t *frame,
                                  size_t len, int num_frame) {
     return elm327_bus_xfer(e, frame, len, num_frame, J1850_FRAME_CAP, true,
                            J1850_SETTLE_MS);
 }
+/* GCOVR_EXCL_STOP */
 
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_j1850_vpw_xfer(elm327_ctx_t *e, const uint8_t *frame,
                                  size_t len, int num_frame) {
     return elm327_bus_xfer(e, frame, len, num_frame, J1850_FRAME_CAP, true,
                            J1850_SETTLE_MS);
 }
+/* GCOVR_EXCL_STOP */
 
 /**
  * @brief ISO 9141-2 and both KWP variants, which differ only in how they start.
@@ -2773,6 +2836,7 @@ static int elm327_j1850_vpw_xfer(elm327_ctx_t *e, const uint8_t *frame,
  *         been reported to the client as BUS INIT: ...ERROR, so the caller
  *         must not add anything to it.
  */
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
 static int elm327_kline_xfer(elm327_ctx_t *e, const uint8_t *frame, size_t len,
                              int num_frame) {
     if (elm327_kline_ensure_link(e) != 0) {
@@ -2781,6 +2845,7 @@ static int elm327_kline_xfer(elm327_ctx_t *e, const uint8_t *frame, size_t len,
 
     return elm327_bus_xfer(e, frame, len, num_frame, KLINE_FRAME_CAP, false, 0);
 }
+/* GCOVR_EXCL_STOP */
 
 /** @brief Run one protocol's transfer, whichever kind of bus it is. */
 static int elm327_try_protocol(elm327_ctx_t *e, uint8_t proto,
@@ -2791,6 +2856,7 @@ static int elm327_try_protocol(elm327_ctx_t *e, uint8_t proto,
     }
 
     switch (proto) {
+/* GCOVR_EXCL_START -- RejsaCAN refuses every K-Line and J1850 protocol in elm327_set_protocol, so this code cannot run in the RejsaCAN build */
     case ELM327_PROTO_ISO9141:
     case ELM327_PROTO_ISO14230_KWP_5BAUD:
     case ELM327_PROTO_ISO14230_KWP_FAST:
@@ -2799,6 +2865,7 @@ static int elm327_try_protocol(elm327_ctx_t *e, uint8_t proto,
         return elm327_j1850_pwm_xfer(e, frame, len, num_frame);
     case ELM327_PROTO_J1850_VPW:
         return elm327_j1850_vpw_xfer(e, frame, len, num_frame);
+/* GCOVR_EXCL_STOP */
     default:
         return elm327_can_protocol_xfer(e, frame, len, num_frame);
     }

@@ -65,6 +65,14 @@ static bool listen_only_active;
  * transceiver at open. ponytail: one bus at a time - two at once needs a
  * second controller (an external MCP2515 or a newer chip). */
 static bool aux_requested;
+/* Transceiver pin for the bus in use: AUX_CAN when requested, else OBD. The
+ * RejsaCAN has no AUX_CAN pins and can_bus_use_aux() refuses aux there, so
+ * the AUX pin is never named on that build. */
+#ifdef OPENDIAG_BOARD_REJSACAN
+#define CAN_BUS_PIN(aux_pin, can0_pin) (can0_pin)
+#else
+#define CAN_BUS_PIN(aux_pin, can0_pin) (aux_requested ? (aux_pin) : (can0_pin))
+#endif
 static gpio_num_t silent_pin = PIN_CAN0_SILENT; /* transceiver in use */
 static bool link_down_pending;
 static portMUX_TYPE task_notify_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -505,7 +513,7 @@ static esp_err_t can_setup(int baud_rate, bool manual, bool listen_only) {
      * asked for. */
     if (aux_requested)
         listen_only = true;
-    silent_pin = aux_requested ? PIN_CAN1_SILENT : PIN_CAN0_SILENT;
+    silent_pin = CAN_BUS_PIN(PIN_CAN1_SILENT, PIN_CAN0_SILENT);
     manual_recovery = manual;
     listen_only_active = listen_only;
     __atomic_store_n(&link_down_pending, false, __ATOMIC_RELAXED);
@@ -513,8 +521,8 @@ static esp_err_t can_setup(int baud_rate, bool manual, bool listen_only) {
     twai_onchip_node_config_t node_config = {
         .io_cfg =
             {
-                .tx = aux_requested ? PIN_CAN1_TX : PIN_CAN0_TX,
-                .rx = aux_requested ? PIN_CAN1_RX : PIN_CAN0_RX,
+                .tx = CAN_BUS_PIN(PIN_CAN1_TX, PIN_CAN0_TX),
+                .rx = CAN_BUS_PIN(PIN_CAN1_RX, PIN_CAN0_RX),
                 .quanta_clk_out = GPIO_NUM_NC,
                 .bus_off_indicator = GPIO_NUM_NC,
             },
@@ -654,6 +662,12 @@ esp_err_t can_bus_setup(int baud_rate) {
 }
 
 esp_err_t can_bus_use_aux(bool aux) {
+#ifdef OPENDIAG_BOARD_REJSACAN
+    /* RejsaCAN has one CAN transceiver, on the OBD socket: no AUX_CAN header.
+     * Selecting obd is always met, as it is the only transceiver. */
+    if (aux)
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
     /* The pins are taken at open; switching under an open bus would leave
      * the wrong transceiver un-silenced at close. */
     if (can_node)
