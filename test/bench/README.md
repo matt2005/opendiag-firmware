@@ -76,9 +76,63 @@ Clear the variables to check the skip path:
 
 ## What is checked
 
-- `test_console.py`: `version` banner, `vbatt` (reports -1 mV, since battery sense is not confirmed on this build), `hsvsense` and `vbattcal` (not supported), `kline` and `j1850` usage text with no argument, `mode`, `mode slcan`, `mode elm327`, `vif`, `help`.
-- `test_protocol_elm327.py`: `ATI`, `ATSP6` then `ATDPN` in one open, refused `ATSP1` and `ATSP3`, and `0100` with no bus (it must reply within 20 seconds, with no data bytes).
+- `test_console.py`: `version` banner, `kline` and `j1850` usage text with no argument, `mode`, `mode slcan`, `mode elm327`, `vif`, `help`. On the RejsaCAN build only: `vbatt` (reports -1 mV, since battery sense is not confirmed), `hsvsense` and `vbattcal` (ESP_ERR_NOT_SUPPORTED).
+- `test_protocol_elm327.py`: `ATI`, `ATSP6` then `ATDPN`, and `0100` with no bus (it must reply within 20 seconds, with no data bytes). On the RejsaCAN build only: refused `ATSP1` and `ATSP3`.
 - `test_slcan.py`: `V`, `N`, `S6`, `O`, `C`, `F`, and listen-only `L` followed by a refused `t1230` (BELL).
+
+The build is read from the `version` banner first. A check that differs between the RejsaCAN and stock builds skips on the other build with a reason. The stock build's replies have not been captured on hardware, so those checks skip on stock with "no captured stock reply". A skip is not a pass.
+
+## Commissioning report
+
+`commission.py` runs the same suite and writes a Markdown report for the board. It reads the identity first (read-only), then runs the tests with pytest and parses the result. It never sends `can` or a pin command.
+
+It needs the same ports and the same Python as the suite, with `pytest` and `pyserial` installed. Use the Python of a venv that has the two packages:
+
+- Windows, PowerShell: `py -m venv $env:USERPROFILE\.venvs\rejsacan-bench`, then `& $env:USERPROFILE\.venvs\rejsacan-bench\Scripts\python.exe -m pip install pytest pyserial`. The Python is `%USERPROFILE%\.venvs\rejsacan-bench\Scripts\python.exe`.
+- Linux, bash: `python3 -m venv ~/.venvs/rejsacan-bench`, then `~/.venvs/rejsacan-bench/bin/python -m pip install pytest pyserial`. The Python is `~/.venvs/rejsacan-bench/bin/python`.
+- macOS, zsh or bash: as Linux. The Python is `~/.venvs/rejsacan-bench/bin/python`.
+
+Find the two ports as in [Find the two ports](#find-the-two-ports). Then run from `test/bench`. Replace the port names, and the text in angle brackets, with your own.
+
+Windows, PowerShell:
+
+```
+cd test\bench
+& $env:USERPROFILE\.venvs\rejsacan-bench\Scripts\python.exe commission.py --console-port COM9 --data-port COM10 --operator "<name>" --unit-label "<bench number>"
+```
+
+Linux, bash:
+
+```
+cd test/bench
+~/.venvs/rejsacan-bench/bin/python commission.py --console-port /dev/ttyACM1 --data-port /dev/ttyACM0 --operator "<name>" --unit-label "<bench number>"
+```
+
+macOS, zsh or bash:
+
+```
+cd test/bench
+~/.venvs/rejsacan-bench/bin/python commission.py --console-port /dev/cu.usbmodemXXXX --data-port /dev/cu.usbmodemYYYY --operator "<name>" --unit-label "<bench number>"
+```
+
+`--operator` and `--unit-label` are optional. If `--console-port` and `--data-port` are omitted, the run reads `OPENDIAG_CONSOLE_PORT` and `OPENDIAG_DATA_PORT`, as the suite does. `--out-dir` sets the folder (default `test/bench/reports`). The run takes about 30 seconds.
+
+Each run writes two files into the out folder, named `commissioning-<UTC time>-<board MAC>` (the SLCAN serial if the MAC is not read):
+
+- `.md`: the report. It has the run date and time (UTC), the operator and unit label, the ports used, the pytest command, the firmware version (git describe), the build detected (RejsaCAN or stock), the board type, the board MAC, ESP-IDF, uptime, reset reason, free heap, the link owner and front end, the SLCAN serial, the results table (test, result, duration, notes), totals, an overall PASS or FAIL line, a "Not verified" section, and a sign-off block with blank Operator signature and Date fields.
+- `.junit.xml`: the raw JUnit XML from pytest.
+
+The board MAC is the per-chip identifier. The firmware writes its eFuse base MAC into the USB serial string, so the report reads it from the console port's USB descriptor without opening the port. The SLCAN serial is the `N` reply, a fixed firmware string that does not identify one board. The report says so.
+
+A skipped check is not a pass. Any skip makes the overall result FAIL, and the report gives the number of skipped checks.
+
+Exit codes:
+
+- `0`: PASS. Every check ran and passed, with no skips.
+- `1`: not a PASS. A check failed or errored, a check was skipped, or the run did not finish (the report says why).
+- `2`: no ports configured. The message says what to set, and nothing is written.
+
+The `reports/` folder is git-ignored (`test/bench/.gitignore`), because the reports carry the board's MAC address. Do not commit them.
 
 ## Safety
 

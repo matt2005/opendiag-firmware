@@ -12,6 +12,11 @@ to True before the open, so opening does not pulse them into a reset.
 
 The front end is switched with the console `mode` command. The `elm327_restored`
 fixture puts it back to elm327 in teardown, even when the test failed.
+
+The build is read from the console `version` banner by the session fixture
+`build_info` (see bench_identity.py). Checks whose reply differs between the
+RejsaCAN and stock builds call `require_build`, which skips them on any other
+build. A skip is never a pass.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from dataclasses import dataclass, field
 from typing import List, Tuple
 
 import pytest
+
+from bench_identity import VersionInfo, parse_version
 
 try:
     import serial
@@ -148,6 +155,36 @@ def elm327_restored(console):
     """Yield, then put the front end back to elm327 whatever the test did."""
     yield
     console.set_front_end("elm327")
+
+
+@pytest.fixture(scope="session")
+def build_info(console_port) -> VersionInfo:
+    """The firmware build, read once from the console `version` banner.
+
+    Uses its own console handle, closed before any test runs. If the banner
+    cannot be parsed, `build` is "unknown" and build-specific checks skip.
+    """
+    ser = open_port(console_port)
+    try:
+        text = Console(ser).command("version")
+    finally:
+        ser.close()
+    return parse_version(text)
+
+
+def require_build(info: VersionInfo, build: str, reason: str) -> None:
+    """Skip unless the detected build is `build`. `reason` says what is being checked.
+
+    The stock build's replies for these checks were never captured on hardware,
+    so they are skipped for stock rather than assumed.
+    """
+    if info.build == build:
+        return
+    if info.build == "stock":
+        pytest.skip(f"stock build: no captured stock reply for {reason}")
+    if info.build == "unknown":
+        pytest.skip(f"build not recognised ({info.hardware or 'no banner'}): {reason}")
+    pytest.skip(f"{info.build} build, not {build}: {reason}")
 
 
 # ---------------------------------------------------------------- ELM327 data port
