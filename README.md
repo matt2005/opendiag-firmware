@@ -68,6 +68,12 @@ The same commands work in Windows PowerShell, Linux and macOS shells. The boards
 `main/boards/`. Adding one is described in [AGENTS.md](AGENTS.md). The older `-DOPENDIAG_BOARD_REJSACAN=ON`
 still works.
 
+### Local build, test and export
+
+`tools/local/build_all.sh` builds, tests and exports the firmware ZIPs, the driver ZIP, the test and
+coverage reports, and SHA256 hashes from a clean clone of one commit. See
+[docs/local-build.md](docs/local-build.md) for the requirements and output.
+
 ## Usage
 
 Once flashed, the adapter enumerates as a USB device named **OpenDIAG** with two CDC ACM serial
