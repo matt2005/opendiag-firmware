@@ -180,11 +180,10 @@ driver_windows() {  # J2534 driver ZIP built in the pinned Debian image
 }
 
 driver_linux() {  # driver host tests built with coverage, then the driver coverage report
-    # The Makefile appends to CFLAGS, CXXFLAGS and LDFLAGS, so the environment adds
-    # --coverage without replacing the warning flags.
+    # COVERAGE=1 adds --coverage in the driver Makefile. Flags in the environment
+    # would reach the test/host CMake build and break its contract library.
     local bld=$work/drv-cov
-    CFLAGS="--coverage" CXXFLAGS="--coverage" LDFLAGS="--coverage" \
-        make -C "$src/j2534_driver" test BUILD_DIR="$bld" > "$out/reports/driver-linux-test.txt" 2>&1 || return 1
+    make -C "$src/j2534_driver" test COVERAGE=1 BUILD_DIR="$bld" > "$out/reports/driver-linux-test.txt" 2>&1 || return 1
     grep -c '^PASS' "$out/reports/driver-linux-test.txt" | sed 's/^/PASS lines: /'
     gcovr_run --root "$src/j2534_driver" --filter '.*(driver|common|legacy|platform|config)/.*\.(c|cpp)$' \
         --gcov-executable "$gcov_exe" \

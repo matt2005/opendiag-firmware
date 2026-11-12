@@ -14,6 +14,14 @@ make -C j2534_driver test
 Make uses the native compiler by default. Set `PYTHON` to a protobuf-enabled
 interpreter if needed, for example `PYTHON=../.venv/bin/python`.
 
+For line coverage of the host build, add `COVERAGE=1` to the test run and report with gcovr
+(`--gcov-executable gcov-14` matches the GCC 14 used here). Pass it on the make command line, not in the
+environment: the environment flags reach the test/host CMake build.
+
+```sh
+make -C j2534_driver test COVERAGE=1
+```
+
 Build the Windows DLLs and configuration utility through Docker:
 
 ```sh

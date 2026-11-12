@@ -90,6 +90,14 @@ PLATFORM := platform/posix.cpp platform/$(TARGET_OS).cpp
 CFLAGS += -fPIC -fvisibility=hidden
 CXXFLAGS += -fPIC -fvisibility=hidden -fvisibility-inlines-hidden
 LDLIBS += -pthread
+# COVERAGE=1 instruments the driver's host build for gcov. Pass it on the make command
+# line. Do not export CFLAGS/CXXFLAGS/LDFLAGS from the environment instead: make would
+# hand these flags to the test/host CMake build, which then hides the contract symbols.
+ifeq ($(COVERAGE),1)
+CFLAGS += --coverage
+CXXFLAGS += --coverage
+LDFLAGS += --coverage
+endif
 NATIVE_LIB := $(BUILD_DIR)/libopendiag.$(SHARED_EXT)
 LEGACY_LIB := $(BUILD_DIR)/libopendiag0404.$(SHARED_EXT)
 PRODUCTS := $(NATIVE_LIB) $(LEGACY_LIB)
