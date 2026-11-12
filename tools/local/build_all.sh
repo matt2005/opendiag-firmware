@@ -128,7 +128,7 @@ host_suite() {
 coverage_report() {  # coverage_report NAME BUILD_DIR: text, XML, and the gate check
     local name=$1 bld=$2
     local json=$work/coverage-$name.json
-    gcovr_run --root "$src" --filter 'main/.*\.c$' \
+    gcovr_run --root "$src" --filter '.*main/.*\.c$' \
         --gcov-executable "$gcov_exe" \
         --txt "$out/reports/coverage-$name.txt" \
         --cobertura "$out/reports/coverage-$name.xml" \
@@ -145,6 +145,8 @@ print(f"{name}: total lines {total:.2f}%")
 for f in files[:3]:
     print(f"  lowest: {f['filename']} {f.get('line_percent', 0.0):.2f}%")
 fail = []
+if not files or data.get("line_total", 0) == 0:
+    fail.append("no coverage data for main/*.c (check the filter)")
 if name == "rejsacan" and total < 95.0:
     fail.append(f"total {total:.2f}% is below 95%")
 for f in files:
