@@ -396,10 +396,10 @@ void app_main(void) {
     /* The front panel button. Its handler is installed with the transports'. */
     button_init();
 
-    /* Setup WS2812 status led */
-#ifndef OPENDIAG_BOARD_REJSACAN /* GPIO 48 is not an LED on RejsaCAN */
-    ws2812_led_init();
-#endif
+    /* Setup WS2812 status led (not fitted on every board) */
+    if (BOARD_HAS_WS2812) {
+        ws2812_led_init();
+    }
     ws2812_led_set_state(LED_STATE_IDLE);
 
     /*

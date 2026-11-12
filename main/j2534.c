@@ -1082,10 +1082,9 @@ static uint32_t connect_channel(const opendiag_Connect *req) {
         /* VIF retains failed claims for teardown; never forget those claims. */
         vif_bus_close(VIF_OWNER_LINK, bus);
         release_channel(channel);
-#ifdef OPENDIAG_BOARD_REJSACAN
-        if (open_err == ESP_ERR_NOT_SUPPORTED)
+        /* A CAN only board refuses the other buses as not supported. */
+        if (BOARD_CAN_ONLY && open_err == ESP_ERR_NOT_SUPPORTED)
             return J2534_NOT_SUPPORTED;
-#endif
         return J2534_CONFLICT;
     }
     int rc = 0;
@@ -1493,11 +1492,10 @@ static uint32_t set_programming_voltage(const opendiag_Voltage *req) {
         pin != 14 && pin != 15)
         return J2534_PIN;
 
-#ifdef OPENDIAG_BOARD_REJSACAN
     /* No pin driver is fitted, so no programming voltage can be set or
      * released. Answered before the pin-in-use check below. */
-    return J2534_NOT_SUPPORTED;
-#endif
+    if (!BOARD_HAS_HS_LS_DRIVERS)
+        return J2534_NOT_SUPPORTED;
     if (mv == UINT32_MAX) {
         if (vif_pin_set(VIF_OWNER_LINK, pin, VIF_PIN_OFF, 0) != ESP_OK)
             return J2534_PIN_IN_USE;
@@ -2003,13 +2001,13 @@ static uint32_t read_voltage(const opendiag_Ioctl *io) {
         return J2534_PIN;
 
     mv = io->id == IOCTL_READ_VBATT ? vif_vbatt_mv() : vif_hs_vsense_mv();
-    if (mv < 0)
-#ifdef OPENDIAG_BOARD_REJSACAN
-        /* No sense input is fitted for this reading on RejsaCAN. */
-        return J2534_NOT_SUPPORTED;
-#else
-        return J2534_FAILED;
-#endif
+    if (mv < 0) {
+        /* A reading with no sense input fitted (see the board profile) is not
+         * supported, rather than a fault. */
+        bool fitted = io->id == IOCTL_READ_VBATT ? BOARD_HAS_VBATT_SENSE
+                                                 : BOARD_HAS_HS_VSENSE;
+        return fitted ? J2534_FAILED : J2534_NOT_SUPPORTED;
+    }
 
     response.millivolts = mv;
     return J2534_OK;

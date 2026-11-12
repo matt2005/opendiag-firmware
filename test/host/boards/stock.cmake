@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Host suites for the stock board (OPENDIAG_BOARD=stock). Included by
+# CMakeLists.txt; sets SUITES, the suites built for this board.
+set(SUITES
+    test_isotp
+    test_bus_params
+    test_elm327_at
+    test_elm327_can
+    test_elm327_bytebus
+    test_elm327_search
+    test_comm_iface
+    test_vif
+    test_vif_link
+    test_vif_ctrl
+    test_slcan
+    test_j2534
+    test_j2534_scheduler
+    test_bus_tx_worker
+    test_button
+    test_can_driver
+    test_kline_driver
+    test_j1850_lifecycle
+    test_j1850_pwm_codec
+    test_j1850_vpw_codec
+    test_kline_codec
+    test_kline_codec_cov
+    test_kline_init_cov
+    test_kline_api_cov
+    test_utility_cov
+    test_comm_iface_cov
+    test_button_cov
+    test_slcan_cov
+    test_vif_cov
+    test_bus_tx_worker_cov
+    test_j2534_cfg_cov
+    test_j2534_misc_cov
+    test_j2534_wire_cov
+    test_can_driver_cov
+)

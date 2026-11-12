@@ -3,10 +3,10 @@
 Firmware log lines ("I (", "W (", "E (") are filtered out by the console fixture.
 
 Checks are shared unless marked with require_build. A check is shared when its
-code path has no OPENDIAG_BOARD_REJSACAN guard (shell.c, the shared kline/j1850
+code path does not depend on the board profile (shell.c, the shared kline/j1850
 usage helper, the mode and vif commands). vbatt, hsvsense and vbattcal answer
-differently on the RejsaCAN build (guards in board.c, vif.c and shell.c), so
-they are gated to RejsaCAN and skip on stock.
+differently on the RejsaCAN build (the BOARD_HAS_* checks in vif.c and shell.c,
+and the board file), so they are gated to RejsaCAN and skip on stock.
 """
 
 import re

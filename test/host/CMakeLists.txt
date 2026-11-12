@@ -9,7 +9,9 @@
 #
 # The firmware sources are compiled from main/ directly. stubs/ shadows the
 # ESP-IDF headers on the include path, which is the only seam. The one switch
-# in main/ is OPENDIAG_BOARD_REJSACAN, set by -DREJSACAN=ON below.
+# in main/ is the board profile, picked with -DOPENDIAG_BOARD=<id> (default
+# stock; -DREJSACAN=ON is an alias for rejsacan). The board file (main/boards/
+# board_*.c) is not built here: the fakes stand in for the board hooks.
 
 cmake_minimum_required(VERSION 3.16)
 project(opendiag_host_tests C)
@@ -31,13 +33,17 @@ if(HW_LS_OBD_9)
     add_compile_definitions(OPENDIAG_HW_LS_OBD_9=1)
 endif()
 
-# Build the RejsaCAN v3.4 variant: a CAN only board with no K-line, J1850, aux
-# CAN or pin drivers. With this on, the suites listed under REJSACAN below run
-# instead of the stock list.
-option(REJSACAN "Build for the RejsaCAN v3.4 board (OPENDIAG_BOARD_REJSACAN)" OFF)
+# Board selection, the same as the firmware: main/boards/board_select.cmake
+# finds the boards and picks one (-DOPENDIAG_BOARD=<id>, default stock). The
+# suites for it come from boards/<id>.cmake. -DREJSACAN=ON is the older alias
+# for rejsacan, kept so existing scripts still work.
+option(REJSACAN "Alias for OPENDIAG_BOARD=rejsacan" OFF)
 if(REJSACAN)
-    add_compile_definitions(OPENDIAG_BOARD_REJSACAN=1)
+    set(OPENDIAG_BOARD_REJSACAN ON)
 endif()
+include(${FW_DIR}/boards/board_select.cmake)
+include_directories(BEFORE ${OPENDIAG_BOARD_INCLUDE})
+include(${CMAKE_CURRENT_SOURCE_DIR}/boards/${OPENDIAG_BOARD_SELECTED}.cmake)
 
 add_compile_options(
     -g
@@ -105,69 +111,7 @@ set(ELM327_FW
     ${FW_DIR}/vif.c
 )
 
-set(SUITES
-    test_isotp
-    test_bus_params
-    test_elm327_at
-    test_elm327_can
-    test_elm327_bytebus
-    test_elm327_search
-    test_comm_iface
-    test_vif
-    test_vif_link
-    test_vif_ctrl
-    test_slcan
-    test_j2534
-    test_j2534_scheduler
-    test_bus_tx_worker
-    test_button
-    test_can_driver
-    test_kline_driver
-    test_j1850_lifecycle
-    test_j1850_pwm_codec
-    test_j1850_vpw_codec
-    test_kline_codec
-    test_kline_codec_cov
-    test_kline_init_cov
-    test_kline_api_cov
-    test_utility_cov
-    test_comm_iface_cov
-    test_button_cov
-    test_slcan_cov
-    test_vif_cov
-    test_bus_tx_worker_cov
-    test_j2534_cfg_cov
-    test_j2534_misc_cov
-    test_j2534_wire_cov
-    test_can_driver_cov
-)
-if(REJSACAN)
-    # The stock suites open K-line and J1850 and expect the stock pin table, so
-    # they are not built here. These hold on a CAN only board, and the RejsaCAN
-    # suites cover the board's own refusals.
-    set(SUITES
-        test_isotp
-        test_bus_params
-        test_j2534_scheduler
-        test_vif_ctrl
-        test_elm327_can
-        test_elm327_at
-        test_can_driver
-        test_can_driver_cov
-        test_comm_iface_cov
-        test_utility_cov
-        test_slcan_cov
-        test_bus_tx_worker_cov
-        test_kline_codec_cov
-        test_vif_rejsacan
-        test_vif_can_cov
-        test_vif_ctrl_can_cov
-        test_j2534_rejsacan
-        test_j2534_rejsacan_cov
-        test_j2534_can_cov
-        test_j2534_wire_rx_cov
-    )
-endif()
+# SUITES comes from boards/<id>.cmake, included with the board selection.
 
 set(test_elm327_at_FW      ${ELM327_FW})
 set(test_bus_tx_worker_FW driver_stubs/driver_rtos.c)

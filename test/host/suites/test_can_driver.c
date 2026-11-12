@@ -31,7 +31,7 @@ static bool tx_unsuccessful;
 static unsigned fail_wire_frame;
 static bool complete_on_poll;
 static int silent;
-#ifndef OPENDIAG_BOARD_REJSACAN /* no AUX_CAN transceiver */
+#if BOARD_HAS_AUX_CAN /* no AUX_CAN transceiver */
 static int silent1 = -1;
 #endif
 static twai_onchip_node_config_t last_cfg;
@@ -53,7 +53,7 @@ static uint32_t last_wire_id;
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t value) {
     if (pin == PIN_CAN0_SILENT)
         silent = value;
-#ifndef OPENDIAG_BOARD_REJSACAN
+#if BOARD_HAS_AUX_CAN
     if (pin == PIN_CAN1_SILENT)
         silent1 = value;
 #endif
@@ -215,7 +215,7 @@ TEST(listen_only_open_keeps_the_transceiver_silent_and_refuses_to_send) {
     TEST_ASSERT_EQUAL_INT(0, silent);
 }
 
-#ifndef OPENDIAG_BOARD_REJSACAN
+#if BOARD_HAS_AUX_CAN
 TEST(aux_port_uses_can1_pins_and_never_transmits) {
     TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_use_aux(true));
     TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_setup(500000)); /* a normal open */

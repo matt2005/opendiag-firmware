@@ -123,7 +123,7 @@ TEST(id_reports_the_link_its_mode_and_every_mode) {
 TEST(id_names_the_board) {
     const char *out = ctrl("ID");
 
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
     TEST_ASSERT_MSG(strstr(out, "OpenDiag RejsaCAN v3.4 ") != NULL,
                     "wrong board in '%s'", out);
 #else
@@ -178,7 +178,7 @@ TEST(an_unknown_mode_is_refused_and_says_what_there_is) {
     TEST_ASSERT_EQUAL_STRING("elm327", vif_link_frontend_name());
 }
 
-#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
+#if !BOARD_CAN_ONLY /* opens K-line/J1850, drives pins */
 TEST(switching_releases_every_claim) {
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_VOLTAGE, 12000);
     vif_bus_open(VIF_OWNER_LINK, VIF_BUS_CAN, &can500);
@@ -202,7 +202,7 @@ TEST(switching_releases_every_claim) {
  * Reset
  * ------------------------------------------------------------------ */
 
-#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
+#if !BOARD_CAN_ONLY /* opens K-line/J1850, drives pins */
 TEST(reset_releases_the_claims_and_restores_the_default) {
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_VOLTAGE, 12000);
     vif_bus_open(VIF_OWNER_LINK, VIF_BUS_CAN, &can500);
@@ -260,7 +260,7 @@ TEST(a_command_longer_than_the_parser_takes_is_refused_not_overrun) {
  * Reporting what is live
  * ------------------------------------------------------------------ */
 
-#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
+#if !BOARD_CAN_ONLY /* opens K-line/J1850, drives pins */
 TEST(bus_reports_every_live_bus_and_its_holder) {
     TEST_ASSERT_EQUAL_STRING("BUS", ctrl("BUS"));
 
@@ -276,7 +276,7 @@ TEST(bus_reports_every_live_bus_and_its_holder) {
 }
 #endif
 
-#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
+#if !BOARD_CAN_ONLY /* opens K-line/J1850, drives pins */
 TEST(bus_names_the_shell_when_the_shell_is_the_holder) {
     vif_bus_open(VIF_OWNER_SHELL, VIF_BUS_KLINE, NULL);
 
@@ -289,7 +289,7 @@ TEST(bus_names_the_shell_when_the_shell_is_the_holder) {
  * Cleanup that could not finish
  * ------------------------------------------------------------------ */
 
-#ifndef OPENDIAG_BOARD_REJSACAN /* opens K-line/J1850, drives pins */
+#if !BOARD_CAN_ONLY /* opens K-line/J1850, drives pins */
 TEST(reset_reports_failed_cleanup_and_preserves_claim_for_retry) {
     TEST_ASSERT_EQUAL_INT(
         ESP_OK, vif_bus_open(VIF_OWNER_LINK, VIF_BUS_J1850_PWM, NULL));
