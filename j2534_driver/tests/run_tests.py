@@ -629,6 +629,99 @@ def test_export_refusals(native_path, legacy_path, peer):
           "04.04 calls queue behind the held call")
 
 
+def test_unreachable_devices(native_path):
+    """A configured device that cannot be opened is left out of discovery, not an error."""
+    class DeviceInfo(ctypes.Structure):
+        _fields_ = [("DeviceName", ctypes.c_char * 80),
+                    ("DeviceAvailable", ctypes.c_uint32),
+                    ("DeviceDLLFWStatus", ctypes.c_uint32),
+                    ("DeviceConnectMedia", ctypes.c_uint32),
+                    ("DeviceConnectSpeed", ctypes.c_uint32),
+                    ("DeviceSignalQuality", ctypes.c_uint32),
+                    ("DeviceSignalStrength", ctypes.c_uint32)]
+
+    previous = os.environ.get("OPENDIAG_DRIVER_CONFIG")
+    with tempfile.TemporaryDirectory(prefix="opendiag-unreachable-") as temporary:
+        directory = Path(temporary)
+        shutil.copy2(native_path, directory / native_path.name)
+        native = ctypes.CDLL(str(directory / native_path.name))
+        native.PassThruScanForDevices.argtypes = [ctypes.POINTER(ctypes.c_uint32)]
+        native.PassThruScanForDevices.restype = ctypes.c_int32
+        native.PassThruGetNextDevice.argtypes = [ctypes.POINTER(DeviceInfo)]
+        native.PassThruGetNextDevice.restype = ctypes.c_int32
+        cases = {
+            # A serial port that is not there: the open fails after the lease is taken.
+            "missing serial port": "[device]\nName=OpenDIAG\nTransport=com\n"
+                                   f"COM={directory / 'no-port'}\n",
+            # A name outside printable ASCII: the link refuses it before it connects.
+            "non-ASCII name": "[device]\nName=OpenDIAGé\nTransport=tcp\nHost=127.0.0.1\n"
+                              "Port=1\nRpcTimeout=1000\n",
+        }
+        for label, text in cases.items():
+            config = directory / f"{label.replace(' ', '-')}.ini"
+            config.write_text(text, encoding="utf-8")
+            os.environ["OPENDIAG_DRIVER_CONFIG"] = str(config)
+            count = ctypes.c_uint32(0x12345678)
+            status = native.PassThruScanForDevices(ctypes.byref(count))
+            assert status == 0, f"{label}: scan returned {status:#x}"
+            assert count.value == 0, f"{label}: scan found {count.value} devices"
+            info = DeviceInfo()
+            assert native.PassThruGetNextDevice(ctypes.byref(info)) == 0x10, label
+    if previous is None:
+        os.environ.pop("OPENDIAG_DRIVER_CONFIG", None)
+    else:
+        os.environ["OPENDIAG_DRIVER_CONFIG"] = previous
+    print("PASS unreachable configured devices are left out of discovery")
+
+
+BACKEND_EXPORTS = [
+    "PassThruScanForDevices", "PassThruGetNextDevice", "PassThruOpen", "PassThruClose",
+    "PassThruConnect", "PassThruDisconnect", "OpenDiagLogicalConnect0404",
+    "PassThruLogicalDisconnect", "PassThruSelect", "PassThruReadMsgs", "PassThruQueueMsgs",
+    "PassThruStartPeriodicMsg", "PassThruStopPeriodicMsg", "PassThruStartMsgFilter",
+    "PassThruStopMsgFilter", "PassThruSetProgrammingVoltage", "PassThruReadVersion",
+    "PassThruGetLastError", "PassThruIoctl", "OpenDiagWakeWait0404",
+]
+
+
+def build_backend(directory, name, missing):
+    """Build a stand-in native library that exports every backend symbol except one."""
+    source = directory / "backend.c"
+    source.write_text("".join(f"int {symbol}(void) {{ return 0; }}\n"
+                              for symbol in BACKEND_EXPORTS if symbol != missing))
+    subprocess.run(["cc", "-shared", "-fPIC", "-o", str(directory / name), str(source)],
+                   check=True)
+
+
+def test_backend_load_failures(native_path, legacy_path):
+    """A 04.04 open whose backend cannot load, or lacks one export, fails with ERR_FAILED.
+
+    PassThruGetLastError must then name the cause. Each case gets its own copy of the legacy
+    library, so the backend is loaded fresh each time.
+    """
+    cases = [(None, "Cannot load the adjacent opendiag32.dll backend")]
+    cases += [(symbol, f"Missing backend export: {symbol}") for symbol in BACKEND_EXPORTS]
+    with tempfile.TemporaryDirectory(prefix="opendiag-backend-") as temporary:
+        for index, (missing, message) in enumerate(cases):
+            directory = Path(temporary) / str(index)
+            directory.mkdir()
+            shutil.copy2(legacy_path, directory / legacy_path.name)
+            if missing is not None:
+                build_backend(directory, native_path.name, missing)
+            legacy = ctypes.CDLL(str(directory / legacy_path.name))
+            legacy.PassThruOpen.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+            legacy.PassThruOpen.restype = ctypes.c_int32
+            legacy.PassThruGetLastError.argtypes = [ctypes.c_char_p]
+            legacy.PassThruGetLastError.restype = ctypes.c_int32
+            identifier = ctypes.c_uint32()
+            status = legacy.PassThruOpen(None, ctypes.byref(identifier))
+            assert status == 0x07, f"{message}: status {status:#x}"
+            description = ctypes.create_string_buffer(80)
+            legacy.PassThruGetLastError(description)
+            assert message in description.value.decode(), description.value
+    print(f"PASS {len(cases)} 04.04 backend load failures report ERR_FAILED with their cause")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
@@ -702,6 +795,8 @@ def main():
     test_device_side_waits(args.native, args.legacy, peer)
     test_fragment_size(args.native, args.legacy, peer)
     test_export_refusals(args.native, args.legacy, peer)
+    test_backend_load_failures(args.native, args.legacy)
+    test_unreachable_devices(args.native)
     if legacy_result.returncode:
         print(legacy_result.stdout)
         raise SystemExit(legacy_result.returncode)
