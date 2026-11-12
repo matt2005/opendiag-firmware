@@ -54,6 +54,12 @@ cmake --build test/host/build
 ctest --test-dir test/host/build
 ```
 
+### Local build, test and export
+
+`tools/local/build_all.sh` builds, tests and exports the firmware ZIP, the driver ZIP, the test and
+coverage reports, and SHA256 hashes from a clean clone of one commit. See
+[docs/local-build.md](docs/local-build.md) for the requirements and output.
+
 ## Usage
 
 Once flashed, the adapter enumerates as a USB device named **OpenDIAG** with two CDC ACM serial

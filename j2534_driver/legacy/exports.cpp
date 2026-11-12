@@ -13,9 +13,6 @@ extern "C" J2534_LONG J2534_CALL PassThruOpen(void *name, J2534_ULONG *deviceId)
     trace.outputValue("device_id", deviceId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruOpen(name, deviceId)));
     } catch (const std::exception &error) {
@@ -33,9 +30,6 @@ extern "C" J2534_LONG J2534_CALL PassThruClose(J2534_ULONG deviceId) {
                                 deviceId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruClose(deviceId)));
     } catch (const std::exception &error) {
@@ -64,9 +58,6 @@ extern "C" J2534_LONG J2534_CALL PassThruConnect(J2534_ULONG deviceId,
     trace.outputValue("channel_id", channelId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(
             legacy::PassThruConnect(deviceId, protocol, flags, baudrate, channelId)));
@@ -85,9 +76,6 @@ extern "C" J2534_LONG J2534_CALL PassThruDisconnect(J2534_ULONG channelId) {
                                 channelId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruDisconnect(channelId)));
     } catch (const std::exception &error) {
@@ -112,9 +100,6 @@ extern "C" J2534_LONG J2534_CALL PassThruReadMsgs(J2534_ULONG channelId,
     trace.outputValue("returned_count", count, true);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(
             legacy::finish(legacy::PassThruReadMsgs(channelId, messages, count, timeout)));
@@ -140,9 +125,6 @@ extern "C" J2534_LONG J2534_CALL PassThruWriteMsgs(J2534_ULONG channelId,
     trace.outputValue("returned_count", count, true);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(
             legacy::finish(legacy::PassThruWriteMsgs(channelId, messages, count, timeout)));
@@ -167,9 +149,6 @@ extern "C" J2534_LONG J2534_CALL PassThruStartPeriodicMsg(J2534_ULONG channelId,
     trace.outputValue("periodic_id", messageId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(
             legacy::PassThruStartPeriodicMsg(channelId, message, messageId, interval)));
@@ -190,9 +169,6 @@ extern "C" J2534_LONG J2534_CALL PassThruStopPeriodicMsg(J2534_ULONG channelId,
                                 messageId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruStopPeriodicMsg(channelId, messageId)));
     } catch (const std::exception &error) {
@@ -221,9 +197,6 @@ extern "C" J2534_LONG J2534_CALL PassThruStartMsgFilter(J2534_ULONG channelId,
     trace.outputValue("filter_id", filterId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(
             legacy::PassThruStartMsgFilter(channelId, type, mask, pattern, flow, filterId)));
@@ -244,9 +217,6 @@ extern "C" J2534_LONG J2534_CALL PassThruStopMsgFilter(J2534_ULONG channelId,
                                 filterId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruStopMsgFilter(channelId, filterId)));
     } catch (const std::exception &error) {
@@ -269,9 +239,6 @@ extern "C" J2534_LONG J2534_CALL PassThruSetProgrammingVoltage(J2534_ULONG devic
                                 voltage);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(
             legacy::finish(legacy::PassThruSetProgrammingVoltage(deviceId, pin, voltage)));
@@ -293,9 +260,6 @@ extern "C" J2534_LONG J2534_CALL PassThruReadVersion(J2534_ULONG deviceId,
                                 deviceId);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(
             legacy::finish(legacy::PassThruReadVersion(deviceId, firmware, dll, api)));
@@ -314,9 +278,6 @@ extern "C" J2534_LONG J2534_CALL PassThruGetLastError(char *description) {
                                 description);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::PassThruGetLastError(description));
     } catch (const std::exception &error) {
@@ -341,9 +302,6 @@ extern "C" J2534_LONG J2534_CALL PassThruIoctl(J2534_ULONG target,
                                 output);
 
     legacy::ApiGuard guard;
-    if (!guard.entered()) {
-        return trace.result(ERR_FAILED);
-    }
     try {
         return trace.result(legacy::finish(legacy::PassThruIoctl(target, id, input, output)));
     } catch (const std::exception &error) {
