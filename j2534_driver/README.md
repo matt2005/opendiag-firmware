@@ -53,5 +53,11 @@ Use a full path and set it for both the configuration utility and diagnostic app
 
 The Windows utility saves the override or system file, starting with defaults for a new file.
 
+The config file must exist, and the DLLs must match the firmware. The driver accepts only
+wire revision 3 (`J2534_PROTOCOL_REVISION` in `main/j2534.h`, reported as
+`Capabilities.wire_version`). Firmware reports 3 from commit 3d0e64b onward, so 64d34fa and
+later; earlier firmware reports 1. A DLL built for another revision cannot talk to
+current firmware, so install DLLs built from the same tree.
+
 Logging is off by default. Enable it in the Windows utility or set `Enabled=1` under `[logging]`.
 If the user log directory cannot be created, logs go beside the library.

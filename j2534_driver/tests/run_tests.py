@@ -558,6 +558,7 @@ def main():
     configure(tests, 1, logging=1)
     # The Makefile builds the test programs and both ABI headers' objects.
     subprocess.run([str(tests / "platform_test")], check=True, timeout=15)
+    subprocess.run([str(tests / "port_classify_test")], check=True, timeout=15)
     cases = [("0500", "selftest", "elm"), ("0500", "contract", "elm"),
              ("0404", "selftest", "elm"), ("0404", "contract", "elm"),
              ("0500", "selftest", "drop-first")]

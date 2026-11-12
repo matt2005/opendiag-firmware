@@ -57,7 +57,7 @@ PLATFORM_COMMON := platform/common.cpp
 CORE := driver/api.cpp driver/exports.cpp driver/link.cpp common/api_trace.cpp
 LEGACY := legacy/legacy.cpp legacy/exports.cpp legacy/backend.cpp legacy/dllmain.cpp common/api_trace.cpp
 NANOPB_SOURCES := pb_common.c pb_encode.c pb_decode.c
-GUI := config/main.cpp config/settings.cpp config/connection.cpp
+GUI := config/main.cpp config/settings.cpp config/connection.cpp config/port_classify.cpp
 
 ifeq ($(TARGET_OS),win32)
 RC ?= $(CROSS_COMPILE)windres
@@ -174,10 +174,14 @@ $(BUILD_DIR)/opendiag.ini:
 
 ifneq ($(TARGET_OS),win32)
 API_TESTS := $(BUILD_DIR)/tests/api0500 $(BUILD_DIR)/tests/api0404
-HOST_TESTS := $(BUILD_DIR)/tests/platform_test $(API_TESTS) $(BUILD_DIR)/tests/abi0404.o $(BUILD_DIR)/tests/abi0500.o
+HOST_TESTS := $(BUILD_DIR)/tests/platform_test $(BUILD_DIR)/tests/port_classify_test $(API_TESTS) $(BUILD_DIR)/tests/abi0404.o $(BUILD_DIR)/tests/abi0500.o
 TEST_OBJECTS := $(call objects,tests/platform_test.cpp tests/api0500.cpp tests/api0404.cpp)
 $(TEST_OBJECTS): $(CONFIG_STAMP) Makefile
 $(BUILD_DIR)/tests/platform_test: $(call objects,tests/platform_test.cpp common/api_trace.cpp $(PLATFORM_SOURCES))
+	$(CXX) $(LDFLAGS) -o "$@" $^ $(LDLIBS)
+PORT_CLASSIFY_TEST_OBJECTS := $(call objects,tests/port_classify_test.cpp config/port_classify.cpp)
+$(PORT_CLASSIFY_TEST_OBJECTS): $(CONFIG_STAMP) Makefile
+$(BUILD_DIR)/tests/port_classify_test: $(PORT_CLASSIFY_TEST_OBJECTS)
 	$(CXX) $(LDFLAGS) -o "$@" $^ $(LDLIBS)
 $(API_TESTS): $(BUILD_DIR)/tests/%: $(BUILD_DIR)/tests/%.o $(call objects,$(PLATFORM_SOURCES))
 	$(CXX) $(LDFLAGS) -o "$@" $^ $(LDLIBS)
@@ -214,4 +218,4 @@ clean:
 	$(PYTHON) -c 'import shutil; shutil.rmtree("$(BUILD_DIR)", ignore_errors=True)'
 
 -include $(sort $(CORE_OBJECTS:.o=.d) $(LEGACY_OBJECTS:.o=.d) $(GUI_OBJECTS:.o=.d) \
-    $(TEST_OBJECTS:.o=.d) $(BUILD_DIR)/tests/abi0404.d $(BUILD_DIR)/tests/abi0500.d)
+    $(TEST_OBJECTS:.o=.d) $(PORT_CLASSIFY_TEST_OBJECTS:.o=.d) $(BUILD_DIR)/tests/abi0404.d $(BUILD_DIR)/tests/abi0500.d)
