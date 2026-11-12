@@ -63,6 +63,10 @@ choice. Older per-board flags still work for existing scripts.
 - Coverage gate for every board build: at least 95% total line coverage of `main/*.c`, and at least
   90% per file. A change must not lower either figure. A change that adds code adds tests in the same
   change.
+- Driver coverage target: at least 95% total line coverage of the host-testable J2534 driver sources
+  (`driver/`, `common/`, `legacy/`, `platform/`, `config/`), measured with `make -C j2534_driver test
+  COVERAGE=1`. A change must not lower it. The tool that builds the artifacts reports this figure and
+  fails below 95%.
 - Measure with GCC `--coverage`, then gcovr (`python -m pip install gcovr`). Use the board id in place
   of `<id>`:
 

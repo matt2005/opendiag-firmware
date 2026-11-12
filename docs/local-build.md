@@ -58,6 +58,10 @@ Coverage is measured for `main/*.c` with gcc `--coverage` and gcovr:
 - Stock: every file at least **90%**. Stock has five refusal lines that cannot be reached on the stock
   build; see [AGENTS.md](../AGENTS.md).
 
+The J2534 driver has a target of **95%** total line coverage over its host-testable sources (`driver/`,
+`common/`, `legacy/`, `platform/`, `config/`). The script fails the driver step below 95%. The per-file
+figures are printed in the log, and the driver has no per-file floor.
+
 A failed gate is a `FAIL` line in the summary and a `GATE FAIL` line in the log.
 
 ## Output

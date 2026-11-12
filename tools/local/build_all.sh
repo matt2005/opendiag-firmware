@@ -186,6 +186,7 @@ driver_linux() {  # driver host tests built with coverage, then the driver cover
     make -C "$src/j2534_driver" test COVERAGE=1 BUILD_DIR="$bld" > "$out/reports/driver-linux-test.txt" 2>&1 || return 1
     grep -c '^PASS' "$out/reports/driver-linux-test.txt" | sed 's/^/PASS lines: /'
     gcovr_run --root "$src/j2534_driver" --filter '.*(driver|common|legacy|platform|config)/.*\.(c|cpp)$' \
+        --exclude '.*tests/.*' \
         --gcov-executable "$gcov_exe" \
         --txt "$out/reports/coverage-driver.txt" \
         --cobertura "$out/reports/coverage-driver.xml" \
@@ -195,11 +196,15 @@ import json, sys
 
 data = json.load(open(sys.argv[1]))
 files = sorted(data.get("files", []), key=lambda f: f.get("line_percent", 0.0))
-print(f"driver: total lines {data.get('line_percent', 0.0):.2f}% (no gate; firmware gates apply to main/)")
+total = data.get("line_percent", 0.0)
+print(f"driver: total lines {total:.2f}% (gate: 95% total)")
 for f in files[:3]:
     print(f"  lowest: {f['filename']} {f.get('line_percent', 0.0):.2f}%")
 if not files or data.get("line_total", 0) == 0:
     print("  GATE FAIL: no driver coverage data (check the filter)")
+    sys.exit(1)
+if total < 95.0:
+    print(f"  GATE FAIL: driver total {total:.2f}% is below 95%")
     sys.exit(1)
 PY
 }
