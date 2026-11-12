@@ -179,9 +179,30 @@ driver_windows() {  # J2534 driver ZIP built in the pinned Debian image
             opendiag-j2534-driver j2534_driver/tools/docker_build.sh
 }
 
-driver_linux() {
-    make -C "$src/j2534_driver" test > "$out/reports/driver-linux-test.txt" 2>&1 || return 1
+driver_linux() {  # driver host tests built with coverage, then the driver coverage report
+    # The Makefile appends to CFLAGS, CXXFLAGS and LDFLAGS, so the environment adds
+    # --coverage without replacing the warning flags.
+    local bld=$work/drv-cov
+    CFLAGS="--coverage" CXXFLAGS="--coverage" LDFLAGS="--coverage" \
+        make -C "$src/j2534_driver" test BUILD_DIR="$bld" > "$out/reports/driver-linux-test.txt" 2>&1 || return 1
     grep -c '^PASS' "$out/reports/driver-linux-test.txt" | sed 's/^/PASS lines: /'
+    gcovr_run --root "$src/j2534_driver" --filter '.*(driver|common|legacy|platform|config)/.*\.(c|cpp)$' \
+        --gcov-executable "$gcov_exe" \
+        --txt "$out/reports/coverage-driver.txt" \
+        --cobertura "$out/reports/coverage-driver.xml" \
+        --json-summary "$work/coverage-driver.json" --print-summary "$bld" || return 1
+    python3 - "$work/coverage-driver.json" <<'PY'
+import json, sys
+
+data = json.load(open(sys.argv[1]))
+files = sorted(data.get("files", []), key=lambda f: f.get("line_percent", 0.0))
+print(f"driver: total lines {data.get('line_percent', 0.0):.2f}% (no gate; firmware gates apply to main/)")
+for f in files[:3]:
+    print(f"  lowest: {f['filename']} {f.get('line_percent', 0.0):.2f}%")
+if not files or data.get("line_total", 0) == 0:
+    print("  GATE FAIL: no driver coverage data (check the filter)")
+    sys.exit(1)
+PY
 }
 
 write_manifest() {
@@ -203,7 +224,7 @@ step "clean clone of $short" prepare_source || { echo "Cannot prepare the source
 step "tools for coverage (gcovr 8.8)" setup_gcovr || { echo "Cannot install gcovr 8.8 (needs python3 venv)." >&2; exit 1; }
 step "host suite, stock (coverage)" host_suite stock
 step "host suite, RejsaCAN (coverage)" host_suite rejsacan -DOPENDIAG_BOARD=rejsacan
-step "driver Linux tests" driver_linux
+step "driver Linux tests and coverage" driver_linux
 step "firmware stock (Docker)" docker_firmware build.sh
 step "firmware RejsaCAN (Docker)" docker_firmware build_rejsacan.sh
 step "driver Windows build (Docker)" driver_windows

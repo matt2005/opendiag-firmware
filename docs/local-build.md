@@ -41,7 +41,9 @@ step, so one run shows every failure. It exits 0 only if every step passed.
 2. **Coverage tool.** Installs gcovr 8.8 with `pip install --target` into the temporary work folder.
 3. **Host suite, stock.** Builds `test/host` with `-DCOVERAGE=ON`, runs `ctest`, then writes the coverage report.
 4. **Host suite, RejsaCAN.** The same with `-DOPENDIAG_BOARD=rejsacan`.
-5. **Driver Linux tests.** `make -C j2534_driver test`.
+5. **Driver Linux tests and coverage.** `make -C j2534_driver test` built with `--coverage` (through the
+   `CFLAGS`, `CXXFLAGS` and `LDFLAGS` environment variables, which the Makefile appends to). Then gcovr writes
+   the driver coverage report. The driver has no gate.
 6. **Firmware, stock (Docker).** `tools/docker/build.sh` in the pinned ESP-IDF 6.1 image. Writes `opendiag-firmware.zip`.
 7. **Firmware, RejsaCAN (Docker).** `tools/docker/build_rejsacan.sh` in the same image. Writes `opendiag-firmware-rejsacan.zip`.
 8. **Driver, Windows (Docker).** Builds `j2534_driver/Dockerfile` and runs `j2534_driver/tools/docker_build.sh`.
@@ -75,6 +77,7 @@ build/artifacts/<commit>/
   reports/coverage-stock.txt, coverage-stock.xml       per-file coverage (text and Cobertura)
   reports/coverage-rejsacan.txt, coverage-rejsacan.xml
   reports/driver-linux-test.txt  driver Linux test log
+  reports/coverage-driver.txt, coverage-driver.xml     driver coverage (driver, common, legacy, platform, config)
   reports/build-*.log, driver-image.log  build logs
 ```
 
