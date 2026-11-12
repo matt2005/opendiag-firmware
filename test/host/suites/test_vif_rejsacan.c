@@ -3,7 +3,7 @@
  * @file test_vif_rejsacan.c
  * @brief The CAN only RejsaCAN build: what vif.c refuses and what it allows.
  *
- * Built only with -DREJSACAN=ON (OPENDIAG_BOARD_REJSACAN). The stock suites
+ * Built only with -DREJSACAN=ON (OPENDIAG_BOARD=rejsacan). The stock suites
  * assume K-line, J1850 and the pin drivers, so they do not apply here.
  */
 

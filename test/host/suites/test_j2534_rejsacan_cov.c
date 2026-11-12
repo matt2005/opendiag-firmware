@@ -1923,7 +1923,7 @@ TEST(read_voltage_without_a_reading_fails_per_board) {
     command(opendiag_Request_ioctl_tag);
     req.command.ioctl = (opendiag_Ioctl){.target = dev, .id = 3,
                                          .connector = 1, .pin = 16};
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
     TEST_ASSERT_EQUAL_INT(J2534_NOT_SUPPORTED, call());
 #else
     TEST_ASSERT_EQUAL_INT(J2534_FAILED, call());
@@ -1934,7 +1934,7 @@ TEST(read_voltage_without_a_reading_fails_per_board) {
 TEST(programming_voltage_reading_is_absent_on_rejsa_and_zero_on_stock) {
     command(opendiag_Request_ioctl_tag);
     req.command.ioctl = (opendiag_Ioctl){.target = dev, .id = 14};
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
     TEST_ASSERT_EQUAL_INT(J2534_NOT_SUPPORTED, call());
 #else
     TEST_ASSERT_EQUAL_INT(0, call());
@@ -1958,7 +1958,7 @@ TEST(programming_voltage_is_answered_on_every_pin_without_driving_it) {
     connect_can(0);
     command(opendiag_Request_voltage_tag);
     req.command.voltage = (opendiag_Voltage){dev, 1, 6, 12000};
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
     const uint32_t pins[] = {6, 9, 11, 12, 13, 14, 15};
     for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
         req.command.voltage.pin = pins[i];
@@ -2379,7 +2379,7 @@ TEST(read_on_an_unopened_device_and_logical_channels_are_refused) {
     TEST_ASSERT_EQUAL_INT(J2534_CHANNEL, read_message(0));
 }
 
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
 TEST(rejsa_has_no_sense_input_for_programming_voltage) {
     command(opendiag_Request_ioctl_tag);
     req.command.ioctl = (opendiag_Ioctl){.target = dev, .id = 14};

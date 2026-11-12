@@ -65,14 +65,11 @@ static bool listen_only_active;
  * transceiver at open. ponytail: one bus at a time - two at once needs a
  * second controller (an external MCP2515 or a newer chip). */
 static bool aux_requested;
-/* Transceiver pin for the bus in use: AUX_CAN when requested, else OBD. The
- * RejsaCAN has no AUX_CAN pins and can_bus_use_aux() refuses aux there, so
- * the AUX pin is never named on that build. */
-#ifdef OPENDIAG_BOARD_REJSACAN
-#define CAN_BUS_PIN(aux_pin, can0_pin) (can0_pin)
-#else
-#define CAN_BUS_PIN(aux_pin, can0_pin) (aux_requested ? (aux_pin) : (can0_pin))
-#endif
+/* Transceiver pin for the bus in use: AUX_CAN when requested, else OBD. A board
+ * without AUX_CAN (BOARD_HAS_AUX_CAN) has PIN_NONE for the aux pins, and
+ * can_bus_use_aux() refuses aux there, so the aux pin is never used. */
+#define CAN_BUS_PIN(aux_pin, can0_pin) \
+    ((BOARD_HAS_AUX_CAN && aux_requested) ? (aux_pin) : (can0_pin))
 static gpio_num_t silent_pin = PIN_CAN0_SILENT; /* transceiver in use */
 static bool link_down_pending;
 static portMUX_TYPE task_notify_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -662,12 +659,10 @@ esp_err_t can_bus_setup(int baud_rate) {
 }
 
 esp_err_t can_bus_use_aux(bool aux) {
-#ifdef OPENDIAG_BOARD_REJSACAN
-    /* RejsaCAN has one CAN transceiver, on the OBD socket: no AUX_CAN header.
-     * Selecting obd is always met, as it is the only transceiver. */
-    if (aux)
+    /* A board with no AUX_CAN header has one CAN transceiver, on the OBD
+     * socket. Selecting obd is always met, as it is the only transceiver. */
+    if (!BOARD_HAS_AUX_CAN && aux)
         return ESP_ERR_NOT_SUPPORTED;
-#endif
     /* The pins are taken at open; switching under an open bus would leave
      * the wrong transceiver un-silenced at close. */
     if (can_node)

@@ -1,67 +1,25 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 
-/* CAN0 Transceiver */
-#ifdef OPENDIAG_BOARD_REJSACAN
-/* RejsaCAN v3.4: the OBD socket transceiver, RS is active high (standby). */
-#define PIN_CAN0_TX 14
-#define PIN_CAN0_RX 13
-#define PIN_CAN0_SILENT 38 /* Active High */
-#else
-#define PIN_CAN0_TX 4
-#define PIN_CAN0_RX 5
-#define PIN_CAN0_SILENT 8 /* Active High */
-#endif
+/* The pins that differ between boards (CAN, LED, sense inputs, drivers) are in
+ * the board profile (main/boards/<board>.h, see boards/board_spec.h). Include
+ * this header for both sets of pin names. */
+#include "board_profile.h"
 
-/* CAN1 Transceiver (TJA1051T-3 U6, AUX_CAN header J3: 1 = H, 2 = L, 3 = GND,
- * no termination fitted) */
-#ifndef OPENDIAG_BOARD_REJSACAN /* RejsaCAN has no AUX_CAN header */
-#define PIN_CAN1_TX 6
-#define PIN_CAN1_RX 7
-#define PIN_CAN1_SILENT 47 /* Active High, same part as CAN0 */
-#endif
+/* Front panel button */
+#define PIN_BUTTON 0
 
-/* K-Line Transceiver */
+/* K-Line Transceiver. The K-Line driver is built for every board; a board
+ * without the transceiver (BOARD_HAS_KLINE) never opens the bus, so these pins
+ * are never driven there. */
 #define PIN_KLINE_TX 17
 #define PIN_KLINE_RX 18
 #define PIN_KLINE_nSILENT 21
 
-/* J1850 IO */
+/* J1850 IO. The same as K-Line: built for every board, and never driven on a
+ * board without the transceiver (BOARD_HAS_J1850). */
 #define PIN_J1850_MODE 11
 #define PIN_J1850_PWM_RX 12
 #define PIN_J1850_VPW_RX 13
 #define PIN_J1850_TX_N 14
 #define PIN_J1850_TX_P 15
-
-/* ADC Inputs */
-#define PIN_HS_VOLTAGE_SENSE 1
-#define PIN_OBD_VOLTAGE_SENSE 2
-#define PIN_BOARDID 9
-
-/* High Side Driver */
-#define PIN_HS_OBD_6 38
-#define PIN_HS_OBD_9 39
-#define PIN_HS_OBD_11 40
-#define PIN_HS_OBD_12 41
-#define PIN_HS_OBD_13 42
-#define PIN_HS_OBD_14 45
-#define PIN_HS_BOOST_EN 46
-#define PIN_HS_VOLTAGE_ADJUST 10 /* PWM signal */
-
-/* Low Side Drivers (active high) */
-/* Pin 9 low side switching (Honda SCS) is not on the stock board: it needs a
- * hardware rework that fits a low side driver on GPIO16. Without the mod the
- * firmware must not offer the pin, so it stays off unless the build defines
- * OPENDIAG_HW_LS_OBD_9=1. */
-#ifndef OPENDIAG_HW_LS_OBD_9
-#define OPENDIAG_HW_LS_OBD_9 0
-#endif
-
-#if OPENDIAG_HW_LS_OBD_9
-#define PIN_LS_OBD_9 16
-#endif
-#define PIN_LS_OBD_15 3
-
-/* Status LED + Button */
-#define PIN_WS2812_LED 48
-#define PIN_BUTTON 0

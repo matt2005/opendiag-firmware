@@ -1178,7 +1178,7 @@ TEST(failed_flow_control_keeps_can_open_for_the_next_request) {
     TEST_ASSERT_EQUAL_HEX32(CAN_EFF_FLAG | 0x0CDA10F1, fake_can_sent(1)->id);
 }
 
-#ifdef OPENDIAG_BOARD_REJSACAN
+#if BOARD_CAN_ONLY
 /* The RejsaCAN has only CAN: a K-Line or J1850 protocol is refused with "?",
  * and the CAN session that is already up keeps answering. */
 TEST(a_non_can_protocol_is_refused_and_the_can_session_is_kept) {

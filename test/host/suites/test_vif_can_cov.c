@@ -3,7 +3,7 @@
  * @file test_vif_can_cov.c
  * @brief vif.c on a CAN only build: the paths the flag-only suite leaves out.
  *
- * Built only with -DREJSACAN=ON (OPENDIAG_BOARD_REJSACAN). The stock suites
+ * Built only with -DREJSACAN=ON (OPENDIAG_BOARD=rejsacan). The stock suites
  * open K-line and J1850, which this build refuses, so the CAN halves of
  * test_vif.c, test_vif_cov.c and test_vif_link.c are repeated here: the
  * front-end table, the link service and its retries, claims and their

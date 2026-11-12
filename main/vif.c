@@ -769,6 +769,22 @@ bool vif_shell_service(void) { return vif_owner_service(VIF_OWNER_SHELL); }
  * Buses
  * ------------------------------------------------------------------ */
 
+bool vif_bus_fitted(vif_bus_t bus) {
+    switch (bus) {
+    case VIF_BUS_CAN:
+        return true;
+    case VIF_BUS_KLINE:
+        return BOARD_HAS_KLINE;
+    case VIF_BUS_J1850_PWM:
+    case VIF_BUS_J1850_VPW:
+        return BOARD_HAS_J1850;
+    default:
+        /* VIF_BUS_NONE and values that are not buses. A board without any
+         * transceiver beyond CAN refuses them. */
+        return !BOARD_CAN_ONLY;
+    }
+}
+
 esp_err_t vif_bus_open(vif_owner_t owner, vif_bus_t bus,
                        const vif_bus_cfg_t *cfg) {
     vif_res_t grp = bus_group(bus);
@@ -777,13 +793,11 @@ esp_err_t vif_bus_open(vif_owner_t owner, vif_bus_t bus,
     if (owner >= VIF_OWNER_COUNT || grp == VIF_RES_COUNT) {
         return ESP_ERR_INVALID_ARG;
     }
-#ifdef OPENDIAG_BOARD_REJSACAN
-    /* Only CAN is fitted. Refuse before any claim is taken, so none is left
-     * behind for the teardown to find. */
-    if (bus != VIF_BUS_CAN) {
+    /* Only CAN is fitted on a CAN only board. Refuse before any claim is taken,
+     * so none is left behind for the teardown to find. */
+    if (!vif_bus_fitted(bus)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-#endif
     if (!on_owner_thread(owner)) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -1152,11 +1166,9 @@ int vif_bus_ioctl(vif_owner_t owner, vif_bus_t bus, bus_ioctl_t id,
 }
 
 int vif_bus_stats(vif_bus_t bus, bus_stats_t *out) {
-#ifdef OPENDIAG_BOARD_REJSACAN
-    if (bus != VIF_BUS_CAN) {
+    if (!vif_bus_fitted(bus)) {
         return BUS_ERR_UNSUPPORTED;
     }
-#endif
     const bus_ops_t *ops = bus_for(bus);
 
     if (!ops || !out) {
@@ -1171,11 +1183,9 @@ int vif_bus_stats(vif_bus_t bus, bus_stats_t *out) {
 }
 
 int vif_bus_reset_stats(vif_bus_t bus) {
-#ifdef OPENDIAG_BOARD_REJSACAN
-    if (bus != VIF_BUS_CAN) {
+    if (!vif_bus_fitted(bus)) {
         return BUS_ERR_UNSUPPORTED;
     }
-#endif
     const bus_ops_t *ops = bus_for(bus);
 
     if (!ops) {
@@ -1209,11 +1219,10 @@ esp_err_t vif_pin_set(vif_owner_t owner, int obd_pin, vif_pin_mode_t m,
         (m == VIF_PIN_GROUND && !low_side)) {
         return ESP_ERR_INVALID_ARG;
     }
-#ifdef OPENDIAG_BOARD_REJSACAN
     /* No pin driver is fitted, so no pin can be held: off is already true,
      * and anything else is refused. */
-    return m == VIF_PIN_OFF ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
-#endif
+    if (!BOARD_HAS_HS_LS_DRIVERS)
+        return m == VIF_PIN_OFF ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
 
     LOCK();
 
@@ -1383,10 +1392,9 @@ esp_err_t vif_calibrate_hs(vif_owner_t owner) {
         return ESP_ERR_INVALID_ARG;
     }
 
-#ifdef OPENDIAG_BOARD_REJSACAN
     /* No high side driver to calibrate. Refused before the pin is claimed. */
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
+    if (!BOARD_HAS_HS_LS_DRIVERS)
+        return ESP_ERR_NOT_SUPPORTED;
 
     err = pins_claim_for_calibration(owner);
     if (err != ESP_OK) {
@@ -1402,10 +1410,9 @@ esp_err_t vif_calibrate_hs(vif_owner_t owner) {
 }
 
 esp_err_t vif_calibrate_vbatt(void) {
-#ifdef OPENDIAG_BOARD_REJSACAN
-    /* The battery sense input is unconfirmed on RejsaCAN. */
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
+    /* The battery sense input is unconfirmed on some boards (see the profile). */
+    if (!BOARD_HAS_VBATT_SENSE)
+        return ESP_ERR_NOT_SUPPORTED;
     /* Reads the battery input only; no pin is driven, so no claim is needed. */
     board_calibrate_vbatt();
     return ESP_OK;

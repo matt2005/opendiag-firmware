@@ -249,6 +249,17 @@ void vif_link_flush(void);
  */
 
 /**
+ * @brief Whether the board fits the transceiver for @p bus.
+ *
+ * CAN is always fitted. A bus the board does not fit is refused by
+ * vif_bus_open() and the stats calls, and by the protocol layers above them.
+ * This is the one place that reads the board's bus features. The
+ * decision comes from the profile (BOARD_HAS_KLINE, BOARD_HAS_J1850), and no
+ * caller tests the board itself.
+ */
+bool vif_bus_fitted(vif_bus_t bus);
+
+/**
  * @brief Claim a bus and bring its driver up.
  *
  * Fails with ESP_ERR_INVALID_STATE when the other owner holds this bus or one

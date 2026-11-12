@@ -719,14 +719,13 @@ static int elm327_set_protocol(elm327_ctx_t *e, int proto) {
         return 0;
     }
 
-#ifdef OPENDIAG_BOARD_REJSACAN
-    /* Only CAN exists on this board. Refuse before anything is released, or
-     * the live CAN session would be dropped for a protocol that cannot open. */
-    if (bus != VIF_BUS_NONE && bus != VIF_BUS_CAN) {
+    /* A CAN only board has no other transceiver. Refuse before anything is
+     * released, or the live CAN session would be dropped for a protocol that
+     * cannot open. */
+    if (bus != VIF_BUS_NONE && !vif_bus_fitted(bus)) {
         ESP_LOGE(TAG, "Protocol not supported on this board");
         return -1;
     }
-#endif
 
     if (e->settings.current_protocol == ELM327_PROTO_AUTO) {
         /* leaving automatic: any search result is stale */
