@@ -92,13 +92,16 @@ jobs:
 
   # Line coverage gate: at least 95% for main/ (host suite) and for the host-testable
   # driver sources. Packages come from the Ubuntu 24.04 archive (unpinned, as the
-  # runner image moves them); gcovr is pinned. The default gcc and gcov are used, which
-  # are a matched pair on this image.
+  # runner image moves them). GCC 14 and its gcov are pinned, because line counts
+  # differ between GCC majors; gcovr is pinned to 7.0.
   coverage:
     name: Line coverage gate (95%)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CC: gcc-14
+      CXX: g++-14
     steps:
       - uses: actions/checkout@v6
         with:
@@ -109,9 +112,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build protobuf-compiler python3 python3-protobuf python3-venv
+            build-essential cmake ninja-build protobuf-compiler python3 python3-protobuf python3-venv \
+            gcc-14 g++-14
+          sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-14 140
           python3 -m venv --system-site-packages "$RUNNER_TEMP/gcovr-venv"
-          "$RUNNER_TEMP/gcovr-venv/bin/pip" install gcovr==8.3
+          "$RUNNER_TEMP/gcovr-venv/bin/pip" install gcovr==7.0
           echo "$RUNNER_TEMP/gcovr-venv/bin" >> "$GITHUB_PATH"
 
       - name: Coverage of main/ (host suite)
@@ -129,7 +134,7 @@ jobs:
         run: |
           make -C j2534_driver test COVERAGE=1
           cd j2534_driver
-          gcovr --root . --print-summary --fail-under-line 95 \
+          gcovr --root . --print-summary --fail-under-line 95 --gcov-executable gcov-14 \
             --filter 'driver/' --filter 'common/' --filter 'legacy/' \
             --filter 'platform/' --filter 'config/' \
             build/linux/release
