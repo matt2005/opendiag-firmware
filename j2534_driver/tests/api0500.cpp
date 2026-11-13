@@ -328,6 +328,17 @@ static void selfTest(Api &api, const char *name) {
     api.require(api.ioctl(physical, FAST_INIT, NULL, NULL),
                 ERR_IOCTL_ID_NOT_SUPPORTED,
                 "Fast init needs a K-line channel");
+    // The mock peer advertises no fast-init capacity, so the driver refuses before it checks the buffers.
+    J2534_ULONG klinePins[] = {7, 15};
+    RESOURCE_STRUCT klineResources = {J1962_CONNECTOR, 2, klinePins};
+    J2534_ULONG kline = 0;
+    api.require(api.connect(session.id, ISO9141, 0, 10400, klineResources, &kline),
+                STATUS_NOERROR,
+                "Connect K-line");
+    api.require(api.ioctl(kline, FAST_INIT, NULL, NULL),
+                ERR_NOT_SUPPORTED,
+                "Fast init without peer capacity");
+    api.require(api.disconnect(kline), STATUS_NOERROR, "Disconnect K-line");
     // Filters and logical channels must invalidate their handles when removed.
     Message mask;
     Message pattern;
