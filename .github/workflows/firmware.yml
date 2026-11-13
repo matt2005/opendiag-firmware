@@ -90,6 +90,50 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Line coverage gate: at least 95% for main/ (host suite) and for the host-testable
+  # driver sources. Packages come from the Ubuntu 24.04 archive (unpinned, as the
+  # runner image moves them); gcovr is pinned. The default gcc and gcov are used, which
+  # are a matched pair on this image.
+  coverage:
+    name: Line coverage gate (95%)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install coverage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build protobuf-compiler python3 python3-protobuf python3-venv
+          python3 -m venv --system-site-packages "$RUNNER_TEMP/gcovr-venv"
+          "$RUNNER_TEMP/gcovr-venv/bin/pip" install gcovr==8.3
+          echo "$RUNNER_TEMP/gcovr-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Coverage of main/ (host suite)
+        env:
+          COVERAGE_FAIL_UNDER: "95"
+        run: |
+          gcov --version | head -n 1
+          cmake -S test/host -B build/coverage-host -G Ninja -DCOVERAGE=ON
+          cmake --build build/coverage-host
+          ctest --test-dir build/coverage-host --output-on-failure
+          # Reports main/ only and fails below COVERAGE_FAIL_UNDER; prints the total line coverage.
+          cmake --build build/coverage-host --target coverage
+
+      - name: Coverage of j2534_driver/ (driver, common, legacy, platform, config)
+        run: |
+          make -C j2534_driver test COVERAGE=1
+          cd j2534_driver
+          gcovr --root . --print-summary --fail-under-line 95 \
+            --filter 'driver/' --filter 'common/' --filter 'legacy/' \
+            --filter 'platform/' --filter 'config/' \
+            build/linux/release
+
   release:
     name: Publish GitHub Release
     needs: [build, j2534-driver]
