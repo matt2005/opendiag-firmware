@@ -8,7 +8,6 @@ nav:
   - Home: index.md
   - User manual: manual.md
   - ELM327 commands: at_commands.md
-  - RejsaCAN flashing: rejsacan-flashing.md
   - Local build and export: local-build.md
   - Firmware update: update/index.html
 

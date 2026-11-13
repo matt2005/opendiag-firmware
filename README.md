@@ -54,23 +54,9 @@ cmake --build test/host/build
 ctest --test-dir test/host/build
 ```
 
-### Choosing a board
-
-One board is built at a time. The stock board is the default. The RejsaCAN v3.4 (CAN only) is
-selected with `OPENDIAG_BOARD`:
-
-```bash
-idf.py -D OPENDIAG_BOARD=rejsacan build
-cmake -S test/host -B test/host/build -DOPENDIAG_BOARD=rejsacan
-```
-
-The same commands work in Windows PowerShell, Linux and macOS shells. The boards are the profiles in
-`main/boards/`. Adding one is described in [AGENTS.md](AGENTS.md). The older `-DOPENDIAG_BOARD_REJSACAN=ON`
-still works.
-
 ### Local build, test and export
 
-`tools/local/build_all.sh` builds, tests and exports the firmware ZIPs, the driver ZIP, the test and
+`tools/local/build_all.sh` builds, tests and exports the firmware ZIP, the driver ZIP, the test and
 coverage reports, and SHA256 hashes from a clean clone of one commit. See
 [docs/local-build.md](docs/local-build.md) for the requirements and output.
 

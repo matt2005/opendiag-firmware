@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Builds, tests and exports everything from a clean clone of one commit:
-#   firmware/  stock and RejsaCAN firmware ZIPs (Docker, pinned ESP-IDF image)
+#   firmware/  stock firmware ZIP (Docker, pinned ESP-IDF image)
 #   driver/    J2534 driver ZIP for Windows (Docker, j2534_driver/Dockerfile)
 #   reports/   host test results (ctest log and JUnit XML), coverage reports,
 #              and the driver's Linux test log
@@ -21,8 +21,8 @@
 #   wsl.exe -e bash -lc 'cd /mnt/c/Users/<you>/install/repos/opendiag/opendiag-firmware && tools/local/build_all.sh'
 #
 # Exit status is 0 only if every step passes, including the coverage gates
-# (total line coverage of main/*.c at least 95% for RejsaCAN; every file at
-# least 90% for both builds).
+# (every main/*.c file at least 90% for the stock build, and the driver total
+# at least 95%).
 set -uo pipefail
 
 usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -147,8 +147,6 @@ for f in files[:3]:
 fail = []
 if not files or data.get("line_total", 0) == 0:
     fail.append("no coverage data for main/*.c (check the filter)")
-if name == "rejsacan" and total < 95.0:
-    fail.append(f"total {total:.2f}% is below 95%")
 for f in files:
     if f.get("line_percent", 0.0) < 90.0:
         fail.append(f"{f['filename']} {f.get('line_percent', 0.0):.2f}% is below 90%")
@@ -227,10 +225,8 @@ echo "Building $short${branch:+ on $branch} into $out"
 step "clean clone of $short" prepare_source || { echo "Cannot prepare the source clone." >&2; exit 1; }
 step "tools for coverage (gcovr 8.8)" setup_gcovr || { echo "Cannot install gcovr 8.8 (needs python3 venv)." >&2; exit 1; }
 step "host suite, stock (coverage)" host_suite stock
-step "host suite, RejsaCAN (coverage)" host_suite rejsacan -DOPENDIAG_BOARD=rejsacan
 step "driver Linux tests and coverage" driver_linux
 step "firmware stock (Docker)" docker_firmware build.sh
-step "firmware RejsaCAN (Docker)" docker_firmware build_rejsacan.sh
 step "driver Windows build (Docker)" driver_windows
 
 write_manifest

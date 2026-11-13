@@ -1,7 +1,7 @@
 # Local build, test and export
 
 `tools/local/build_all.sh` builds, tests and exports every release artifact from one commit:
-the stock and RejsaCAN firmware ZIPs, the J2534 driver ZIP, the test and coverage reports, and
+the stock firmware ZIP, the J2534 driver ZIP, the test and coverage reports, and
 SHA256 hashes. Use it before flashing a board or handing out a build.
 
 It runs in a clean clone of `HEAD`, so the artifacts match a commit exactly.
@@ -40,23 +40,18 @@ step, so one run shows every failure. It exits 0 only if every step passed.
    Uncommitted changes are not included; the script prints a warning when there are any.
 2. **Coverage tool.** Installs gcovr 8.8 with `pip install --target` into the temporary work folder.
 3. **Host suite, stock.** Builds `test/host` with `-DCOVERAGE=ON`, runs `ctest`, then writes the coverage report.
-4. **Host suite, RejsaCAN.** The same with `-DOPENDIAG_BOARD=rejsacan`.
-5. **Driver Linux tests and coverage.** `make -C j2534_driver test COVERAGE=1`, which adds `--coverage` in the
+4. **Driver Linux tests and coverage.** `make -C j2534_driver test COVERAGE=1`, which adds `--coverage` in the
    driver Makefile. The flags are not put in the environment, because make would pass them to the test/host CMake
-   build and hide the contract symbols. Then gcovr writes the driver coverage report. The driver has no gate.
-6. **Firmware, stock (Docker).** `tools/docker/build.sh` in the pinned ESP-IDF 6.1 image. Writes `opendiag-firmware.zip`.
-7. **Firmware, RejsaCAN (Docker).** `tools/docker/build_rejsacan.sh` in the same image. Writes `opendiag-firmware-rejsacan.zip`.
-8. **Driver, Windows (Docker).** Builds `j2534_driver/Dockerfile` and runs `j2534_driver/tools/docker_build.sh`.
+   build and hide the contract symbols. Then gcovr writes the driver coverage report, and the step fails below 95%.
+5. **Firmware, stock (Docker).** `tools/docker/build.sh` in the pinned ESP-IDF 6.1 image. Writes `opendiag-firmware.zip`.
+6. **Driver, Windows (Docker).** Builds `j2534_driver/Dockerfile` and runs `j2534_driver/tools/docker_build.sh`.
    Writes `opendiag-j2534-driver.zip`.
-9. **Hashes.** Writes `SHA256SUMS` over every file in the output folder, and `BUILD_INFO.txt` with the commit and branch.
+7. **Hashes.** Writes `SHA256SUMS` over every file in the output folder, and `BUILD_INFO.txt` with the commit and branch.
 
 ### Coverage gates
 
-Coverage is measured for `main/*.c` with gcc `--coverage` and gcovr:
-
-- RejsaCAN: total line coverage at least **95%**, and every file at least **90%**.
-- Stock: every file at least **90%**. Stock has five refusal lines that cannot be reached on the stock
-  build; see [AGENTS.md](../AGENTS.md).
+Coverage of `main/*.c` is measured with gcc `--coverage` and gcovr. The stock build must have every file at
+least **90%**.
 
 The J2534 driver has a target of **95%** total line coverage over its host-testable sources (`driver/`,
 `common/`, `legacy/`, `platform/`, `config/`). The script fails the driver step below 95%. The per-file
@@ -74,12 +69,9 @@ build/artifacts/<commit>/
   BUILD_INFO.txt                 commit, branch, build time, whether uncommitted changes were excluded
   SHA256SUMS                     SHA-256 of every other file in this folder
   firmware/opendiag-firmware.zip             stock firmware
-  firmware/opendiag-firmware-rejsacan.zip    RejsaCAN v3.4 firmware
   driver/opendiag-j2534-driver.zip           J2534 driver for Windows
   reports/ctest-stock.txt, ctest-stock.xml   stock host suite (log and JUnit)
-  reports/ctest-rejsacan.txt, ctest-rejsacan.xml
   reports/coverage-stock.txt, coverage-stock.xml       per-file coverage (text and Cobertura)
-  reports/coverage-rejsacan.txt, coverage-rejsacan.xml
   reports/driver-linux-test.txt  driver Linux test log
   reports/coverage-driver.txt, coverage-driver.xml     driver coverage (driver, common, legacy, platform, config)
   reports/build-*.log, driver-image.log  build logs
