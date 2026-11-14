@@ -328,7 +328,7 @@ static void selfTest(Api &api, const char *name) {
     api.require(api.ioctl(physical, FAST_INIT, NULL, NULL),
                 ERR_IOCTL_ID_NOT_SUPPORTED,
                 "Fast init needs a K-line channel");
-    // The mock peer advertises no fast-init capacity, so the driver refuses before it checks the buffers.
+    // The mock peer echoes fast-init data back on ISO 9141, so the reply and buffer checks run.
     J2534_ULONG klinePins[] = {7, 15};
     RESOURCE_STRUCT klineResources = {J1962_CONNECTOR, 2, klinePins};
     J2534_ULONG kline = 0;
@@ -336,8 +336,37 @@ static void selfTest(Api &api, const char *name) {
                 STATUS_NOERROR,
                 "Connect K-line");
     api.require(api.ioctl(kline, FAST_INIT, NULL, NULL),
-                ERR_NOT_SUPPORTED,
-                "Fast init without peer capacity");
+                STATUS_NOERROR,
+                "Fast init without a reply");
+    Message request;
+    request.value.ProtocolID = ISO9141;
+    request.value.DataLength = 4;
+    putId(request.data, 0x12345678);
+    Message reply;
+    api.require(api.ioctl(kline, FAST_INIT, &request.value, &reply.value),
+                STATUS_NOERROR,
+                "Fast init echoes the reply");
+    check(reply.value.DataLength == 4 && !memcmp(reply.data, request.data, 4),
+          "Fast init reply carries the request bytes");
+    api.require(api.ioctl(kline, FAST_INIT, NULL, &reply.value),
+                ERR_FAILED,
+                "Fast init output without a request has no reply");
+    PASSTHRU_MSG noBuffer = {};
+    noBuffer.ProtocolID = ISO9141;
+    api.require(api.ioctl(kline, FAST_INIT, NULL, &noBuffer),
+                ERR_NULL_PARAMETER,
+                "Fast init output without a buffer");
+    Message small;
+    small.value.DataBufferSize = 2;
+    api.require(api.ioctl(kline, FAST_INIT, &request.value, &small.value),
+                ERR_BUFFER_TOO_SMALL,
+                "Fast init reply beyond the output buffer");
+    Message longRequest;
+    longRequest.value.ProtocolID = ISO9141;
+    longRequest.value.DataLength = 261;
+    api.require(api.ioctl(kline, FAST_INIT, &longRequest.value, NULL),
+                ERR_INVALID_MSG,
+                "Fast init request beyond the firmware limit");
     api.require(api.disconnect(kline), STATUS_NOERROR, "Disconnect K-line");
     // Filters and logical channels must invalidate their handles when removed.
     Message mask;
