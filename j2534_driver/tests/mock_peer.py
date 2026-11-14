@@ -150,7 +150,7 @@ class Peer:
                     if value.parameter == 0xffff:
                         response.status = 0x1e
                         break
-                    if 0xff01 <= value.parameter <= 0xff07:
+                    if 0xff01 <= value.parameter <= 0xff09:
                         self.fault = value.parameter
                     if 0xfe01 <= value.parameter <= 0xfe04:
                         self.select_fault = value.parameter
@@ -225,6 +225,13 @@ class Peer:
                 frame = packet(op, sequence, 128, 0, bytes(193))
             elif fault == 0xff05:
                 continue
+            elif fault == 0xff08:
+                # Field 1 with wire type 7, which protobuf never defines. The frame is well formed, but the
+                # payload cannot be decoded.
+                frame = packet(op, sequence, 128, 0, b"\x0f")
+            elif fault == 0xff09:
+                # A continuation fragment with no data, which the driver must refuse.
+                frame = packet(op, sequence, 129, 0, b"")
             # Deliberately split headers and payloads to exercise exact-read loops.
             connection.sendall(frame[:3])
             connection.sendall(frame[3:11])

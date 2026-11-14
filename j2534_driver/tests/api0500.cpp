@@ -248,6 +248,30 @@ static void selfTest(Api &api, const char *name) {
     elapsed = platform::milliseconds() - start;
     printf("Empty Select timeout: %" J2534_PRIu " ms (requested 100)\n", elapsed);
     check(set.ChannelCount == 0 && elapsed >= 100 && elapsed <= 150, "Select timeout tolerance");
+    J2534_ULONG unknownIds[] = {0x7777};
+    SCHANNELSET unknown = {1, 1, unknownIds};
+    api.require(api.select(&unknown, READABLE_TYPE, 0), ERR_INVALID_CHANNEL_ID, "Select unknown channel");
+    // Only one of the two channels has data, so a threshold of two times out with that channel reported.
+    J2534_ULONG selectPins[] = {7, 15};
+    RESOURCE_STRUCT selectResources = {J1962_CONNECTOR, 2, selectPins};
+    J2534_ULONG selectKline = 0;
+    api.require(api.connect(session.id, ISO9141, 0, 10400, selectResources, &selectKline),
+                STATUS_NOERROR,
+                "Connect second select channel");
+    Message readable;
+    readable.value.ProtocolID = CAN;
+    readable.value.DataLength = 4;
+    readable.value.MsgHandle = 43;
+    J2534_ULONG queued = 1;
+    api.require(api.queue(physical, &readable.value, &queued), STATUS_NOERROR, "Queue readable channel");
+    J2534_ULONG partialIds[] = {physical, selectKline};
+    SCHANNELSET partial = {2, 2, partialIds};
+    api.require(api.select(&partial, READABLE_TYPE, 100), ERR_TIMEOUT, "Select below threshold times out");
+    check(partial.ChannelCount == 1 && partial.ChannelList[0] == physical,
+          "Timed-out select reports only the readable channel");
+    J2534_ULONG drained = 1;
+    api.require(api.read(physical, &readable.value, &drained, 0), STATUS_NOERROR, "Drain readable channel");
+    api.require(api.disconnect(selectKline), STATUS_NOERROR, "Disconnect second select channel");
     // Configuration batches must stop at the first unsupported parameter.
     SCONFIG configs[40];
     for (unsigned i = 0; i < 40; ++i) {
@@ -510,7 +534,7 @@ static void contractTest(Api &api, const char *name) {
                     "Small buffer suffix discarded");
     }
     // Each injected wire failure must latch disconnection until Close and Open.
-    for (J2534_ULONG fault = 0xff01; fault <= 0xff07; ++fault) {
+    for (J2534_ULONG fault = 0xff01; fault <= 0xff09; ++fault) {
         Session session(api, name);
         J2534_ULONG channel = connectCan(api, session.id);
         SCONFIG config = {fault, 123};
