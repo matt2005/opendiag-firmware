@@ -186,6 +186,37 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Linux driver libraries (x86_64, armhf, arm64), built in Docker. The Windows driver package is
+  # built by the j2534-driver job.
+  j2534-linux:
+    name: Linux J2534 driver (x86_64, armhf, arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Build and test in Docker
+        run: |
+          docker build -f j2534_driver/Dockerfile.unix --target export \
+            --output type=local,dest=build/j2534-dist/unix .
+
+      - name: Verify packages
+        run: |
+          for dir in build/j2534-dist/unix/*/; do
+            (cd "$dir" && sha256sum --check SHA256SUMS)
+          done
+
+      - name: Upload Linux drivers
+        uses: actions/upload-artifact@v7
+        with:
+          name: opendiag-j2534-linux
+          path: build/j2534-dist/unix/
+          if-no-files-found: error
+          retention-days: 30
+
   # Host tests and line coverage for main/ (host suite) and for the host-testable driver
   # sources. Coverage is reported only; no threshold fails the job. Packages come from the
   # Ubuntu 24.04 archive (unpinned, as the runner image moves them). GCC 14 and its gcov are
