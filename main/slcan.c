@@ -213,6 +213,7 @@ static void slcan_send_frame(slcan_ctx_t *c, const char *buf, bool rtr,
         return;
     }
 
+    log_io_can(TAG, "bus tx", frame.id, frame.dlc, frame.data);
     if (can_frame_send(&frame) != 0) {
         ESP_LOGE(TAG, "transmit failed");
         slcan_nack(c);
@@ -254,6 +255,8 @@ static void slcan_close_bus(slcan_ctx_t *c) {
 }
 
 static void slcan_parse_command(slcan_ctx_t *c, const char *buf) {
+    log_io_text(TAG, "app >", buf);
+
     switch (buf[0]) {
     case 'O': /* open the channel */
         c->overrun = false;
@@ -342,6 +345,8 @@ static void slcan_print_frame(slcan_ctx_t *c, const struct can_frame *f) {
     char buf[SLCAN_LINE_MAX];
     int pos = 0;
 
+    log_io_can(TAG, "bus rx", f->id, f->dlc, f->data);
+
     if (f->id & CAN_EFF_FLAG) {
         uint32_t id = f->id & CAN_EFF_MASK;
 
@@ -367,6 +372,8 @@ static void slcan_print_frame(slcan_ctx_t *c, const struct can_frame *f) {
         }
     }
 
+    buf[pos] = '\0';
+    log_io_text(TAG, "app <", buf);
     buf[pos++] = '\r';
 
     slcan_write(c, buf, (size_t)pos);
