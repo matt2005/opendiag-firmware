@@ -1711,7 +1711,7 @@ TEST(connect_rejects_bad_device_connector_baud_protocol_and_flags) {
                            .pins_count = 2,
                            .pins = {7, 15}};
     TEST_ASSERT_EQUAL_INT(J2534_BAUD, connect_with(&c));
-    c.baudrate = 15626;
+    c.baudrate = KLINE_BAUD_HW_MAX + 1;
     TEST_ASSERT_EQUAL_INT(J2534_BAUD, connect_with(&c));
     c = (opendiag_Connect){.device = dev,
                            .protocol = J2534_ISOTP,

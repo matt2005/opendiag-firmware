@@ -1607,7 +1607,7 @@ TEST(kline_parameters_round_trip_and_reject_out_of_range_values) {
 
     TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG, kline_set_param(BUS_P_DATA_RATE, 1199));
     TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG,
-                          kline_set_param(BUS_P_DATA_RATE, 15626));
+                          kline_set_param(BUS_P_DATA_RATE, KLINE_BAUD_HW_MAX + 1));
     TEST_ASSERT_EQUAL_INT(0, kline_set_param(BUS_P_DATA_RATE, 9600));
     TEST_ASSERT_EQUAL_INT(9600, g.active_baud);
     TEST_ASSERT_EQUAL_INT(0, kline_get_param(BUS_P_DATA_RATE, &value));
@@ -1624,7 +1624,7 @@ TEST(kline_parameters_round_trip_and_reject_out_of_range_values) {
     TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG, kline_set_param(BUS_P_TX_RETRIES, 9));
     TEST_ASSERT_EQUAL_INT(0, kline_set_param(BUS_P_TX_RETRIES, 8));
     TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG,
-                          kline_set_param(BUS_P_KLINE_FRAME_MODE, 3));
+                          kline_set_param(BUS_P_KLINE_FRAME_MODE, BUS_KLINE_FRAME_RAW + 1));
     TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG,
                           kline_set_param(BUS_P_PERIODIC_MS, 0x1000000));
     TEST_ASSERT_EQUAL_INT(0, kline_set_param(BUS_P_PERIODIC_MS, 0xFFFFFF));

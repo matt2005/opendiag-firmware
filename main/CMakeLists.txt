@@ -17,6 +17,7 @@ idf_component_register(SRCS main.c
                             isotp.c
                             kline.c
                             kline_codec.c
+                            ds2_codec.c
                             bus_tx.c
                             bus_tx_worker.c
                             bus.c
