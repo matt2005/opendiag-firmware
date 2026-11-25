@@ -93,17 +93,20 @@ jobs:
                       f"but board.json maintainers give {sorted(expected)}"
                   )
 
-          matrix = json.dumps({"board": boards})
+          entries = [
+              {"board": board, "name": json.loads(Path("boards", board, "board.json").read_text())["name"]}
+              for board in boards
+          ]
+          matrix = json.dumps({"include": entries})
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"matrix={matrix}\n")
           PY
 
   build:
-    name: Build ${{ matrix.board }}
+    name: Build ${{ matrix.name }} firmware
     needs: [boards]
     strategy:
-      matrix:
-        board: ${{ fromJSON(needs.boards.outputs.matrix).board }}
+      matrix: ${{ fromJSON(needs.boards.outputs.matrix) }}
       fail-fast: false
     runs-on: ubuntu-24.04
     # A board job builds twice under --verify, so it needs more time than the other jobs.
@@ -156,7 +159,7 @@ jobs:
           retention-days: 30
 
   j2534-driver:
-    name: Test and build Windows J2534 driver package
+    name: Test and build J2534 driver (Windows)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -181,15 +184,16 @@ jobs:
       - name: Upload driver package
         uses: actions/upload-artifact@v7
         with:
+          name: opendiag-j2534-driver.zip
           path: build/docker/opendiag-j2534-driver.zip
           archive: false
           if-no-files-found: error
           retention-days: 30
 
-  # Linux driver libraries (x86_64, armhf, arm64), built in Docker. The Windows driver package is
-  # built by the j2534-driver job.
+  # Linux driver libraries for x64, armhf and arm64, built in Docker. Each architecture is zipped
+  # separately, like the Windows package, so each one can be downloaded and released on its own.
   j2534-linux:
-    name: Linux J2534 driver (x86_64, armhf, arm64)
+    name: Test and build J2534 driver (Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -203,17 +207,55 @@ jobs:
           docker build -f j2534_driver/Dockerfile.unix --target export \
             --output type=local,dest=build/j2534-dist/unix .
 
-      - name: Verify packages
+      # The export directories are named by the Docker target (x86_64); the release names use x64.
+      - name: Zip each architecture
         run: |
-          for dir in build/j2534-dist/unix/*/; do
-            (cd "$dir" && sha256sum --check SHA256SUMS)
+          for pair in x64:x86_64 armhf:armhf arm64:arm64; do
+            name=${pair%%:*}
+            arch=${pair##*:}
+            (cd "build/j2534-dist/unix/linux-$arch" && zip -q -j "../../opendiag-j2534-linux-$name.zip" ./*)
           done
 
-      - name: Upload Linux drivers
+      - name: Verify driver packages
+        run: |
+          shopt -s nullglob
+          verification_root=$(mktemp -d)
+          trap 'rm -rf -- "$verification_root"' EXIT
+          packages=(build/j2534-dist/opendiag-j2534-linux-*.zip)
+          if (( ${#packages[@]} != 3 )); then
+            echo "Expected three Linux driver zips, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          for package in "${packages[@]}"; do
+            verification_dir="$verification_root/$(basename "$package" .zip)"
+            unzip "$package" -d "$verification_dir"
+            (cd "$verification_dir" && sha256sum --check SHA256SUMS)
+          done
+
+      - name: Upload x64 driver package
         uses: actions/upload-artifact@v7
         with:
-          name: opendiag-j2534-linux
-          path: build/j2534-dist/unix/
+          name: opendiag-j2534-linux-x64.zip
+          path: build/j2534-dist/opendiag-j2534-linux-x64.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload armhf driver package
+        uses: actions/upload-artifact@v7
+        with:
+          name: opendiag-j2534-linux-armhf.zip
+          path: build/j2534-dist/opendiag-j2534-linux-armhf.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload arm64 driver package
+        uses: actions/upload-artifact@v7
+        with:
+          name: opendiag-j2534-linux-arm64.zip
+          path: build/j2534-dist/opendiag-j2534-linux-arm64.zip
+          archive: false
           if-no-files-found: error
           retention-days: 30
 
@@ -290,13 +332,13 @@ jobs:
           path: dist
           skip-decompress: true
 
-      # The Linux artifact is a directory upload, so it is extracted: dist/linux/linux-<arch>/ holds each
-      # archive and its SHA256SUMS.
       - name: Download verified Linux driver packages
         uses: actions/download-artifact@v8
         with:
-          name: opendiag-j2534-linux
-          path: dist/linux
+          pattern: opendiag-j2534-linux-*.zip
+          path: dist
+          merge-multiple: true
+          skip-decompress: true
 
       - name: Verify release packages
         run: |
@@ -308,18 +350,15 @@ jobs:
           fi
           verification_root=$(mktemp -d)
           trap 'rm -rf -- "$verification_root"' EXIT
-          for package in "${firmware_packages[@]}" dist/opendiag-j2534-driver.zip; do
+          linux_packages=(dist/opendiag-j2534-linux-*.zip)
+          if (( ${#linux_packages[@]} == 0 )); then
+            echo "No opendiag-j2534-linux-<arch>.zip found in dist/" >&2
+            exit 1
+          fi
+          for package in "${firmware_packages[@]}" dist/opendiag-j2534-driver.zip "${linux_packages[@]}"; do
             verification_dir="$verification_root/$(basename "$package" .zip)"
             unzip "$package" -d "$verification_dir"
             (cd "$verification_dir" && sha256sum --check SHA256SUMS)
-          done
-          linux_packages=(dist/linux/*/opendiag-j2534-linux-*.tar.gz)
-          if (( ${#linux_packages[@]} == 0 )); then
-            echo "No opendiag-j2534-linux-<arch>.tar.gz found in dist/linux/" >&2
-            exit 1
-          fi
-          for checksums in dist/linux/*/SHA256SUMS; do
-            (cd "$(dirname "$checksums")" && sha256sum --check SHA256SUMS)
           done
 
       - name: Publish release
@@ -334,7 +373,7 @@ jobs:
             echo "No opendiag-firmware-<board>.zip found in dist/" >&2
             exit 1
           fi
-          linux_packages=(dist/linux/*/opendiag-j2534-linux-*.tar.gz)
+          linux_packages=(dist/opendiag-j2534-linux-*.zip)
           release_flags=(--verify-tag --generate-notes --title "$RELEASE_TAG")
           if [[ "$RELEASE_TAG" == *-* ]]; then
             release_flags+=(--prerelease)
