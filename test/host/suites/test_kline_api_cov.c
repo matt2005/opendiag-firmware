@@ -10,8 +10,17 @@
  * Only that one call is redirected. */
 esp_err_t kline_test_gpio_intr_enable(gpio_num_t pin);
 #define gpio_intr_enable kline_test_gpio_intr_enable
+/* The arming sequence's other two GPIO calls get the same treatment so a
+ * test can fail each step and check the unwind. */
+esp_err_t kline_test_gpio_set_intr_type(gpio_num_t pin, gpio_int_type_t type);
+esp_err_t kline_test_gpio_isr_handler_add(gpio_num_t pin, gpio_isr_t isr,
+                                          void *arg);
+#define gpio_set_intr_type kline_test_gpio_set_intr_type
+#define gpio_isr_handler_add kline_test_gpio_isr_handler_add
 #include "kline.c"
 #undef gpio_intr_enable
+#undef gpio_set_intr_type
+#undef gpio_isr_handler_add
 #include "td_test.h"
 
 static bool uart_live;
@@ -1160,8 +1169,27 @@ TEST(kline_uart_overflow_blocks_repeat_admission_without_a_later_response) {
  * sync_capture_start(), so the scripted train is in the ring before the
  * detector looks at it. Timestamps are relative to the moment of arming,
  * which is just after the address word ended. */
+static esp_err_t seam_set_type_result, seam_handler_add_result,
+    seam_enable_result;
+static bool seam_overcount;
+
+esp_err_t kline_test_gpio_set_intr_type(gpio_num_t pin, gpio_int_type_t type) {
+    /* Only arming (ANYEDGE) fails; the unwind's DISABLE call must succeed. */
+    if (type == GPIO_INTR_ANYEDGE && seam_set_type_result != ESP_OK)
+        return seam_set_type_result;
+    return gpio_set_intr_type(pin, type);
+}
+
+esp_err_t kline_test_gpio_isr_handler_add(gpio_num_t pin, gpio_isr_t isr,
+                                          void *arg) {
+    if (seam_handler_add_result != ESP_OK)
+        return seam_handler_add_result;
+    return gpio_isr_handler_add(pin, isr, arg);
+}
+
 esp_err_t kline_test_gpio_intr_enable(gpio_num_t pin) {
-    esp_err_t err = gpio_intr_enable(pin);
+    esp_err_t err = seam_enable_result != ESP_OK ? seam_enable_result
+                                                 : gpio_intr_enable(pin);
 
     if (err != ESP_OK)
         return err;
@@ -1174,6 +1202,9 @@ esp_err_t kline_test_gpio_intr_enable(gpio_num_t pin) {
             g.sync_edge_us[i] = base + (uint32_t)sync_plan_rel[i];
         __atomic_store_n(&g.sync_edge_count, sync_plan_n, __ATOMIC_RELEASE);
         sync_plan_n = 0;
+        if (seam_overcount)
+            __atomic_store_n(&g.sync_edge_count, KLINE_SYNC_CAPTURE_MAX + 1u,
+                             __ATOMIC_RELEASE);
     }
     return ESP_OK;
 }
@@ -2163,4 +2194,174 @@ TEST(five_baud_ioctl_runs_the_init_on_the_worker_and_copies_the_request_back) {
     TEST_ASSERT_EQUAL_INT(KLINE_INIT_ADDR_OBD, out.address);
     TEST_ASSERT_EQUAL_INT(1, g.stats.init_no_sync);
     TEST_ASSERT_EQUAL_INT(1, driver_task_exits);
+}
+
+/* ------------------------------------------------------------------ *
+ * Break, RAW framing, sync capture arming
+ * ------------------------------------------------------------------ */
+
+TEST(break_set_ioctl_holds_tx_low_and_release_restores_it) {
+    uint32_t on = 1, off = 0;
+
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_BAD_ARG,
+                          kline_ioctl(BUS_IOCTL_BREAK_SET, NULL, NULL));
+    TEST_ASSERT_FALSE(g.break_asserted);
+
+    capture_edges = true;
+    TEST_ASSERT_EQUAL_INT(0, kline_ioctl(BUS_IOCTL_BREAK_SET, &on, NULL));
+    TEST_ASSERT_TRUE(g.break_asserted);
+    TEST_ASSERT_TRUE(edge_count >= 1);
+    TEST_ASSERT_EQUAL_INT(0, edges[edge_count - 1].level);
+
+    /* A second assert changes nothing on the pins. */
+    {
+        unsigned seen = edge_count;
+        TEST_ASSERT_EQUAL_INT(0, kline_ioctl(BUS_IOCTL_BREAK_SET, &on, NULL));
+        TEST_ASSERT_EQUAL_INT(seen, edge_count);
+    }
+
+    TEST_ASSERT_EQUAL_INT(0, kline_ioctl(BUS_IOCTL_BREAK_SET, &off, NULL));
+    TEST_ASSERT_FALSE(g.break_asserted);
+    TEST_ASSERT_EQUAL_INT(1, edges[edge_count - 1].level);
+
+    /* Releasing again is a no-op. */
+    {
+        unsigned seen = edge_count;
+        TEST_ASSERT_EQUAL_INT(0, kline_ioctl(BUS_IOCTL_BREAK_SET, &off, NULL));
+        TEST_ASSERT_EQUAL_INT(seen, edge_count);
+    }
+    capture_edges = false;
+}
+
+TEST(break_release_without_a_uart_still_drives_the_line_high) {
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+    TEST_ASSERT_EQUAL_INT(0, break_set(true));
+    g.uart_installed = false;
+    break_clear();
+    TEST_ASSERT_FALSE(g.break_asserted);
+    g.uart_installed = true;
+}
+
+TEST(break_and_init_ioctls_refuse_while_a_command_is_unresolved) {
+    uint32_t on = 1;
+    bus_init_t init;
+
+    memset(&init, 0, sizeof(init));
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+
+    g.command_timed_out = true;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_NOT_READY,
+                          kline_ioctl(BUS_IOCTL_BREAK_SET, &on, NULL));
+    TEST_ASSERT_FALSE(g.break_asserted);
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_NOT_READY,
+                          kline_ioctl(BUS_IOCTL_FIVE_BAUD_INIT, &init, &init));
+    g.command_timed_out = false;
+
+    g.uart_tx_unresolved = true;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_NOT_READY,
+                          kline_ioctl(BUS_IOCTL_BREAK_SET, &on, NULL));
+    g.uart_tx_unresolved = false;
+}
+
+TEST(raw_mode_assembly_emits_one_byte_per_message) {
+    kline_frame_t f;
+
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+    g.cfg.frame_mode = BUS_KLINE_FRAME_RAW;
+    g.asm_buf[0] = 0xa1;
+    g.asm_buf[1] = 0xb2;
+    g.asm_buf[2] = 0xc3;
+    g.asm_len = 3;
+    g.asm_start_us = 100;
+    g.asm_last_us = 300;
+
+    TEST_ASSERT_TRUE(asm_complete(false, &f));
+    TEST_ASSERT_EQUAL_INT(1, f.len);
+    TEST_ASSERT_EQUAL_INT(0xa1, f.data[0]);
+    TEST_ASSERT_EQUAL_INT(0, f.status);
+    TEST_ASSERT_EQUAL_INT(100, (int)f.start_us);
+    TEST_ASSERT_EQUAL_INT(300, (int)f.end_us);
+    TEST_ASSERT_EQUAL_INT(2, g.asm_len);
+    TEST_ASSERT_EQUAL_INT(0xb2, g.asm_buf[0]);
+    TEST_ASSERT_EQUAL_INT(300, (int)g.asm_start_us);
+
+    TEST_ASSERT_TRUE(asm_complete(false, &f));
+    TEST_ASSERT_EQUAL_INT(0xb2, f.data[0]);
+    TEST_ASSERT_TRUE(asm_complete(false, &f));
+    TEST_ASSERT_EQUAL_INT(0xc3, f.data[0]);
+    TEST_ASSERT_EQUAL_INT(0, g.asm_len);
+    TEST_ASSERT_FALSE(asm_complete(true, &f));
+}
+
+TEST(raw_mode_transmit_echoes_each_byte_to_the_receive_queue) {
+    static const uint8_t req[] = {0x11, 0x22, 0x33};
+    kline_frame_t f;
+
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+    g.cfg.frame_mode = BUS_KLINE_FRAME_RAW;
+    g.cfg.checksum_tx = false;
+    g.cfg.loopback = false;
+    uart_immediate_echo = true;
+
+    TEST_ASSERT_EQUAL_INT(0, tx_message(req, sizeof(req), true, 0));
+
+    for (unsigned i = 0; i < sizeof(req); i++) {
+        TEST_ASSERT_EQUAL_INT(pdTRUE, xQueueReceive(g.rx_q, &f, 0));
+        TEST_ASSERT_EQUAL_INT(1, f.len);
+        TEST_ASSERT_EQUAL_INT(req[i], f.data[0]);
+        TEST_ASSERT_EQUAL_INT(0, f.status);
+    }
+    TEST_ASSERT_EQUAL_INT(pdFALSE, xQueueReceive(g.rx_q, &f, 0));
+}
+
+TEST(sync_edge_isr_timestamps_edges_and_stops_at_capacity) {
+    TEST_ASSERT_EQUAL_INT(ESP_OK, kline_open(NULL));
+    __atomic_store_n(&g.sync_edge_count, 0, __ATOMIC_RELEASE);
+
+    for (unsigned i = 0; i < KLINE_SYNC_EDGE_COUNT; i++)
+        sync_edge_isr(NULL);
+    TEST_ASSERT_EQUAL_INT(KLINE_SYNC_EDGE_COUNT,
+                          __atomic_load_n(&g.sync_edge_count,
+                                          __ATOMIC_ACQUIRE));
+
+    /* The ring stops at its capacity and ignores further edges. */
+    __atomic_store_n(&g.sync_edge_count, KLINE_SYNC_CAPTURE_MAX,
+                     __ATOMIC_RELEASE);
+    sync_edge_isr(NULL);
+    TEST_ASSERT_EQUAL_INT(KLINE_SYNC_CAPTURE_MAX,
+                          __atomic_load_n(&g.sync_edge_count,
+                                          __ATOMIC_ACQUIRE));
+}
+
+TEST(five_baud_reports_failure_when_edge_capture_cannot_arm) {
+    bus_init_t init = {.address = KLINE_INIT_ADDR_OBD};
+
+    open_five_baud();
+
+    seam_set_type_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_INIT, do_init(CMD_FIVE_BAUD, &init));
+    seam_set_type_result = ESP_OK;
+
+    seam_handler_add_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_INIT, do_init(CMD_FIVE_BAUD, &init));
+    seam_handler_add_result = ESP_OK;
+
+    seam_enable_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_INIT, do_init(CMD_FIVE_BAUD, &init));
+    seam_enable_result = ESP_OK;
+
+    /* Each failed arm is reported as an init that found no sync pattern. */
+    TEST_ASSERT_EQUAL_INT(3, g.stats.init_no_sync);
+}
+
+TEST(five_baud_clamps_an_overfull_edge_count) {
+    bus_init_t init = {.address = KLINE_INIT_ADDR_OBD};
+
+    open_five_baud();
+    arm_sync_train(2000, 50, SEAM_SYNC_MAX);
+    seam_overcount = true;
+    TEST_ASSERT_EQUAL_INT(BUS_ERR_INIT, do_init(CMD_FIVE_BAUD, &init));
+    seam_overcount = false;
+    TEST_ASSERT_EQUAL_INT(1, g.stats.init_no_sync);
 }

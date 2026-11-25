@@ -191,3 +191,149 @@ TEST(kdcan_umount_clears_latch) {
 
     TEST_ASSERT_FALSE(usb_cdc_get_line_status(USB_CDC_INTERFACE_DATA));
 }
+
+/* ------------------------------------------------------------------ *
+ * Coverage: parity mapping, interface filter, sync, failure retry
+ * ------------------------------------------------------------------ */
+
+TEST(kdcan_line_coding_odd_parity_and_7_bits) {
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 10400, 0, 1, 7);
+    kdcan_frontend.poll();
+
+    TEST_ASSERT_EQUAL_INT(10400, (int)fake_bus_kline_baud());
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_ODD, (int)fake_bus_kline_parity());
+}
+
+TEST(kdcan_line_coding_mark_parity_maps_to_none) {
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 9600, 0, 2, 8);
+    kdcan_frontend.poll();
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_EVEN, (int)fake_bus_kline_parity());
+
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 9600, 0, 3, 8);
+    kdcan_frontend.poll();
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_NONE, (int)fake_bus_kline_parity());
+}
+
+TEST(kdcan_zero_bit_rate_uses_default_baud) {
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 9600, 0, 0, 8);
+    kdcan_frontend.poll();
+    TEST_ASSERT_EQUAL_INT(9600, (int)fake_bus_kline_baud());
+
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 0, 0, 0, 8);
+    kdcan_frontend.poll();
+    TEST_ASSERT_EQUAL_INT(115200, (int)fake_bus_kline_baud());
+}
+
+TEST(kdcan_ignores_other_interface_coding_and_break) {
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_SHELL, 9600, 0, 2, 8);
+    fake_usb_cdc_send_break(USB_CDC_INTERFACE_SHELL, 0xFFFF);
+    kdcan_frontend.poll();
+
+    TEST_ASSERT_EQUAL_INT(115200, (int)fake_bus_kline_baud());
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_NONE, (int)fake_bus_kline_parity());
+    TEST_ASSERT_EQUAL_INT(0, (int)fake_bus_kline_break());
+}
+
+TEST(kdcan_start_syncs_coding_set_before_start) {
+    kdcan_frontend.stop();
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 19200, 0, 1, 8);
+
+    TEST_ASSERT_TRUE(kdcan_frontend.start());
+
+    TEST_ASSERT_EQUAL_INT(19200, (int)fake_bus_kline_baud());
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_ODD, (int)fake_bus_kline_parity());
+}
+
+TEST(kdcan_start_ignores_zero_rate_host_coding) {
+    kdcan_frontend.stop();
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 0, 0, 2, 8);
+
+    TEST_ASSERT_TRUE(kdcan_frontend.start());
+
+    TEST_ASSERT_EQUAL_INT(115200, (int)fake_bus_kline_baud());
+    TEST_ASSERT_EQUAL_INT(BUS_PARITY_NONE, (int)fake_bus_kline_parity());
+}
+
+TEST(kdcan_feed_ignores_empty_input) {
+    kdcan_frontend.feed(NULL, 4);
+    kdcan_frontend.feed((const uint8_t *)"x", 0);
+    TEST_ASSERT_EQUAL_INT(0, fake_bus_sent_count(FAKE_BUS_KLINE));
+}
+
+TEST(kdcan_open_failure_at_start_retries_on_feed) {
+    static const uint8_t req[] = {0x01, 0x02};
+    size_t len = 0;
+
+    kdcan_frontend.stop();
+    fake_bus_open_result(FAKE_BUS_KLINE, ESP_FAIL);
+    TEST_ASSERT_TRUE(kdcan_frontend.start());
+
+    /* Closed: poll does nothing, feed cannot send. */
+    kdcan_frontend.poll();
+    kdcan_frontend.feed(req, sizeof(req));
+    TEST_ASSERT_EQUAL_INT(0, fake_bus_sent_count(FAKE_BUS_KLINE));
+
+    /* Host reasserts the default coding while closed, then the bus opens. */
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 115200, 0, 0, 8);
+    fake_bus_open_result(FAKE_BUS_KLINE, ESP_OK);
+    kdcan_frontend.feed(req, sizeof(req));
+
+    TEST_ASSERT_EQUAL_INT(1, fake_bus_sent_count(FAKE_BUS_KLINE));
+    TEST_ASSERT_EQUAL_MEM(req, fake_bus_sent(FAKE_BUS_KLINE, 0, &len),
+                          sizeof(req));
+    TEST_ASSERT_EQUAL_INT(115200, (int)fake_bus_kline_baud());
+}
+
+TEST(kdcan_poll_adopts_bus_opened_elsewhere) {
+    kdcan_frontend.stop();
+    fake_bus_open_result(FAKE_BUS_KLINE, ESP_FAIL);
+    TEST_ASSERT_TRUE(kdcan_frontend.start());
+    fake_bus_open_result(FAKE_BUS_KLINE, ESP_OK);
+    TEST_ASSERT_EQUAL_INT(ESP_OK,
+                          vif_bus_open(VIF_OWNER_LINK, VIF_BUS_KLINE, NULL));
+
+    fake_usb_cdc_send_break(USB_CDC_INTERFACE_DATA, 0xFFFF);
+    kdcan_frontend.poll();
+
+    /* Adopted: pending break was flushed onto the now-known open bus. */
+    TEST_ASSERT_EQUAL_INT(1, (int)fake_bus_kline_break());
+}
+
+TEST(kdcan_coding_and_break_failures_leave_pending) {
+    /* Losing the claim makes every vif_bus_* call fail; flushes must not
+     * crash and the stop path must still clean up. */
+    TEST_ASSERT_EQUAL_INT(ESP_OK, vif_bus_release_all(VIF_OWNER_LINK));
+
+    fake_usb_cdc_line_coding(USB_CDC_INTERFACE_DATA, 9600, 0, 2, 8);
+    fake_usb_cdc_send_break(USB_CDC_INTERFACE_DATA, 0xFFFF);
+    kdcan_frontend.poll();
+
+    TEST_ASSERT_EQUAL_INT(0, (int)fake_bus_kline_break());
+    TEST_ASSERT_EQUAL_INT(0, fake_bus_sent_count(FAKE_BUS_KLINE));
+}
+
+TEST(kdcan_send_failure_is_survived) {
+    static const uint8_t req[] = {0x55};
+
+    fake_bus_fail_next_send(FAKE_BUS_KLINE);
+    kdcan_frontend.feed(req, sizeof(req));
+    TEST_ASSERT_EQUAL_INT(0, fake_bus_sent_count(FAKE_BUS_KLINE));
+
+    kdcan_frontend.feed(req, sizeof(req));
+    TEST_ASSERT_EQUAL_INT(1, fake_bus_sent_count(FAKE_BUS_KLINE));
+}
+
+TEST(kdcan_stop_deasserts_break) {
+    fake_usb_cdc_send_break(USB_CDC_INTERFACE_DATA, 0xFFFF);
+    kdcan_frontend.poll();
+    TEST_ASSERT_EQUAL_INT(1, (int)fake_bus_kline_break());
+
+    kdcan_frontend.stop();
+    TEST_ASSERT_EQUAL_INT(0, (int)fake_bus_kline_break());
+}
+
+TEST(kdcan_register_twice_is_idempotent) {
+    kdcan_register();
+    kdcan_register();
+    TEST_ASSERT_TRUE(vif_frontend_find("kdcan") == &kdcan_frontend);
+}
