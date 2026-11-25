@@ -4,7 +4,68 @@
  * @brief ISO 15765-4 request framing, reply filtering and output formatting.
  */
 
+#include "freertos/FreeRTOS.h"
+
+#include "can_xfer.h"
+
+/*
+ * The monitor commands run until the client sends any byte, and the harness
+ * delivers input to the front-end synchronously, so there is no way to send
+ * that byte "while" the monitor runs. This seam stands in for the monitor's
+ * frame read: it passes frames through untouched and, once the test's staged
+ * frames have all been handed over, delivers the stop byte on the link the way
+ * a client typing during the monitor would.
+ */
+static int mon_frames_before_stop = -1;
+static int mon_reads;
+static int mon_recv(struct can_frame *f, TickType_t wait);
+#define can_frame_recv(f, wait) mon_recv((f), (wait))
+
 #include "elm327_harness.h"
+
+/* Frames the monitor is to see, queued onto the bus one read at a time. They
+ * cannot be staged up front: the front-end clears the receive queue when it
+ * starts a command. */
+static struct {
+    uint32_t id;
+    uint8_t dlc;
+    uint8_t data[8];
+} mon_script[16];
+static int mon_script_len;
+
+static void mon_add(uint32_t id, uint8_t dlc, const uint8_t *data) {
+    TEST_ASSERT_TRUE(mon_script_len < 16);
+    mon_script[mon_script_len].id = id;
+    mon_script[mon_script_len].dlc = dlc;
+    memcpy(mon_script[mon_script_len].data, data, 8);
+    mon_script_len++;
+}
+
+static int mon_recv(struct can_frame *f, TickType_t wait) {
+    if (mon_frames_before_stop >= 0) {
+        if (mon_reads < mon_script_len) {
+            fake_can_stage_stale(mon_script[mon_reads].id,
+                                 mon_script[mon_reads].dlc,
+                                 mon_script[mon_reads].data);
+        } else if (mon_reads == mon_script_len) {
+            TEST_ASSERT_MSG(comm_port_rx(fake_port_id(0), (const uint8_t *)"X",
+                                         1) == ESP_OK,
+                            "stop byte refused");
+        }
+        mon_reads++;
+    }
+    return can_frame_recv_status(f, wait, NULL);
+}
+
+/** Runs a monitor command, which stops once every added frame was served. */
+static const char *mon_run(const char *cmd) {
+    mon_reads = 0;
+    mon_frames_before_stop = mon_script_len;
+    const char *out = elm_ask(cmd);
+    mon_frames_before_stop = -1;
+    mon_script_len = 0;
+    return out;
+}
 
 #define CAN_11BIT_500K "ATSP6\r"
 #define CAN_29BIT_500K "ATSP7\r"
@@ -1325,4 +1386,324 @@ TEST(cp_changes_the_normal_fixed_priority_bits) {
     const struct can_frame *tx = fake_can_sent(0);
     TEST_ASSERT_NOT_NULL(tx);
     TEST_ASSERT_EQUAL_HEX32((0x0CDB33F1 | CAN_EFF_FLAG), tx->id);
+}
+
+/* ------------------------------------------------------------------ *
+ * Monitor mode, reply filters and the flow control options
+ * ------------------------------------------------------------------ */
+
+TEST(ma_prints_obd_replies_until_a_byte_arrives_then_says_stopped) {
+    static const uint8_t other[8] = {0x01, 0x02};
+    on_can_11bit();
+    elm_ask("0100\r"); /* opens the bus */
+
+    mon_add(0x7E8, 8, supported_pids);
+    mon_add(0x123, 8, other); /* not a reply identifier */
+    mon_add(0x7E8 | CAN_RTR_FLAG, 0, other); /* remote frame */
+    mon_add(0x7E9, 8, supported_pids);
+
+    TEST_ASSERT_EQUAL_STRING("7E8 06 41 00 BE 3F B8 13 00 \r"
+                             "7E9 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(ma_opens_the_bus_itself_and_refuses_when_it_cannot) {
+    elm_echo_off();
+    /* Protocol chosen, driver closed: the state a monitor command finds when
+     * nothing has been sent yet. */
+    elm_ok("ATPC\r");
+    g_elm->settings.current_protocol = ELM327_PROTO_CAN_11BIT_500K;
+    TEST_ASSERT_FALSE(fake_can_is_up());
+
+    TEST_ASSERT_EQUAL_STRING("STOPPED\r" ELM_PROMPT, mon_run("ATMA\r"));
+    TEST_ASSERT_TRUE(fake_can_is_up());
+
+    elm_ok("ATPC\r");
+    g_elm->settings.current_protocol = ELM327_PROTO_CAN_11BIT_500K;
+    fake_can_fail_setup(true);
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, mon_run("ATMA\r"));
+}
+
+TEST(ma_refuses_on_a_protocol_that_is_not_can) {
+    elm_echo_off();
+    elm_ok("ATSP3\r");
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, mon_run("ATMA\r"));
+}
+
+TEST(mr_and_mt_select_11_bit_frames_by_the_low_identifier_byte) {
+    on_can_11bit();
+    elm_ask("0100\r");
+
+    mon_add(0x7E8, 8, supported_pids);
+    mon_add(0x7E9, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("7E9 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMRE9\r"));
+
+    mon_add(0x7E8, 8, supported_pids);
+    mon_add(0x7E9, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("7E8 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMTE8\r"));
+}
+
+TEST(mr_matches_the_destination_and_mt_the_source_of_a_29_bit_frame) {
+    on_can_29bit();
+    elm_ask("0100\r");
+    const uint32_t from_10 = 0x18DAF110 | CAN_EFF_FLAG;
+    const uint32_t from_11 = 0x18DAF111 | CAN_EFF_FLAG;
+
+    /* The destination is the low byte; both frames go to the tester, F1 high
+     * byte of the address pair, so a receive filter on 10 sees only the
+     * frame whose low byte is 10. */
+    mon_add(from_10, 8, supported_pids);
+    mon_add(from_11, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("18DAF110 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMR10\r"));
+
+    /* The source is the byte above it. */
+    mon_add(from_10, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("18DAF110 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMTF1\r"));
+    mon_add(from_10, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("STOPPED\r" ELM_PROMPT, mon_run("ATMT10\r"));
+}
+
+TEST(the_default_view_trims_and_shows_what_it_cannot_decode) {
+    static const uint8_t short_sf[8] = {0x07, 0x41, 0x00};
+    static const uint8_t flow_control[8] = {0x30, 0x00, 0x05};
+    on_can_11bit();
+    elm_ok("ATH0\r");
+    elm_ask("0100\r");
+
+    /* A single frame that claims more than the frame holds is cut to it. */
+    mon_add(0x7E8, 3, short_sf);
+    /* A flow control frame is shown as it arrived rather than swallowed. */
+    mon_add(0x7E8, 3, flow_control);
+    TEST_ASSERT_EQUAL_STRING("41 00 \r"
+                             "30 00 05 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(a_frame_longer_than_eight_bytes_is_displayed_as_eight) {
+    on_can_11bit();
+    elm_ask("0100\r");
+
+    mon_add(0x7E8, 9, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("7E8 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(cra_on_29_bit_accepts_only_its_own_extended_identifier) {
+    on_can_29bit();
+    elm_ask("0100\r");
+    elm_ok("ATCRA18DAF110\r");
+
+    mon_add(0x18DAF110 | CAN_EFF_FLAG, 8, supported_pids);
+    mon_add(0x18DAF111 | CAN_EFF_FLAG, 8, supported_pids);
+    mon_add(0x7E8, 8, supported_pids); /* 11 bit, same low bits */
+    TEST_ASSERT_EQUAL_STRING("18DAF110 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(cf_and_cm_filter_29_bit_replies_by_pattern) {
+    on_can_29bit();
+    elm_ask("0100\r");
+    elm_ok("ATCF18DAF100\r");
+    elm_ok("ATCM18DAF1XX\r");
+
+    mon_add(0x18DAF1AA | CAN_EFF_FLAG, 8, supported_pids);
+    mon_add(0x18DAF2AA | CAN_EFF_FLAG, 8, supported_pids);
+    mon_add(0x7E8, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("18DAF1AA 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(cf_and_cm_filter_11_bit_replies_by_pattern) {
+    on_can_11bit();
+    elm_ask("0100\r");
+    elm_ok("ATCF7E8\r");
+    elm_ok("ATCM7FF\r");
+
+    mon_add(0x7E8, 8, supported_pids);
+    mon_add(0x7E9, 8, supported_pids);
+    mon_add(0x7E8 | CAN_EFF_FLAG, 8, supported_pids);
+    TEST_ASSERT_EQUAL_STRING("7E8 06 41 00 BE 3F B8 13 00 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+}
+
+TEST(user_can_without_a_transport_format_takes_any_frame_of_its_width) {
+    elm_echo_off();
+    elm_ok("ATPB0001\r"); /* raw frames, 29 bit, 500 kbaud */
+    elm_ok("ATSPB\r");
+    elm_ok("ATH1\r");
+    elm_ask("0100\r");
+
+    mon_add(0x123 | CAN_EFF_FLAG, 2, supported_pids);
+    mon_add(0x123, 2, supported_pids); /* 11 bit: wrong width */
+    TEST_ASSERT_EQUAL_STRING("00000123 06 41 \r"
+                             "STOPPED\r" ELM_PROMPT,
+                             mon_run("ATMA\r"));
+
+    /* A format the firmware does not carry accepts nothing. */
+    g_elm->settings.proto_b_opts = 0x02;
+    TEST_ASSERT_FALSE(elm327_can_reply_id_ok(g_elm, 0x123 | CAN_EFF_FLAG));
+}
+
+TEST(user2_reports_its_own_identifier_width) {
+    elm_echo_off();
+    elm_ok("ATSPC\r");
+    elm_ok("ATH1\r");
+    elm_ask("0100\r");
+
+    /* USER2 defaults to 11 bit, and is read from its own option byte rather
+     * than USER1's. */
+    TEST_ASSERT_TRUE(elm327_can_is_11bit(g_elm));
+    g_elm->settings.proto_c_opts = 0x00;
+    TEST_ASSERT_FALSE(elm327_can_is_11bit(g_elm));
+}
+
+TEST(a_request_that_cannot_open_the_can_driver_is_reported) {
+    elm_echo_off();
+    elm_ok("ATPC\r"); /* an earlier test may have left the driver open */
+    g_elm->settings.current_protocol = ELM327_PROTO_CAN_11BIT_500K;
+    fake_can_fail_setup(true);
+
+    const char *out = elm_ask("0100\r");
+
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+    TEST_ASSERT_FALSE(fake_can_is_up());
+    TEST_ASSERT_MSG(strstr(out, "NO DATA") == NULL, "reply was [%s]", out);
+}
+
+TEST(raw_can_requests_that_do_not_fit_are_refused_before_sending) {
+    elm_echo_off();
+    elm_ok(CAN_11BIT_500K);
+    elm_ok("ATCAF0\r");
+
+    elm_ask("010203040506070809\r"); /* nine bytes: no CAN frame holds it */
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+
+    elm_ok("ATCEA40\r");
+    elm_ask("0102030405060708\r"); /* eight bytes plus the address byte */
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+}
+
+TEST(raw_can_requests_with_cea_carry_the_address_byte_first) {
+    elm_echo_off();
+    elm_ok(CAN_11BIT_500K);
+    elm_ok("ATCAF0\r");
+    elm_ok("ATCEA40\r");
+
+    elm_ask("0100\r");
+
+    const struct can_frame *tx = fake_can_sent(0);
+    TEST_ASSERT_NOT_NULL(tx);
+    TEST_ASSERT_EQUAL_INT(0x40, tx->data[0]);
+    TEST_ASSERT_EQUAL_INT(0x01, tx->data[1]);
+    TEST_ASSERT_EQUAL_INT(0x00, tx->data[2]);
+}
+
+/* Reply of 11 bytes from the engine ECU, as a first and a consecutive frame. */
+static const uint8_t ff_11[8] = {0x10, 0x0B, 0x62, 0xF1, 0x90, 0x01, 0x02, 0x03};
+static const uint8_t cf_11[8] = {0x21, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00};
+
+TEST(fcsm2_sends_the_automatic_header_with_the_users_block_size_and_stmin) {
+    on_can_11bit();
+    elm_ok("ATFCSD300205\r");
+    elm_ok("ATFCSM2\r");
+
+    fake_can_stage_response(0x7E8, 8, ff_11, 1);
+    fake_can_stage_response_at(0x7E8, 8, cf_11, 1, 2);
+    elm_ask("22F190\r");
+
+    TEST_ASSERT_TRUE(fake_can_sent_count() >= 2);
+    const struct can_frame *fc = fake_can_sent(1);
+    TEST_ASSERT_EQUAL_HEX32(0x7E0, fc->id); /* not the user's data alone */
+    TEST_ASSERT_EQUAL_INT(0x30, fc->data[0]);
+    TEST_ASSERT_EQUAL_INT(0x02, fc->data[1]);
+    TEST_ASSERT_EQUAL_INT(0x05, fc->data[2]);
+}
+
+TEST(fcsm2_with_cea_reads_block_size_and_stmin_after_the_address_byte) {
+    static const uint8_t ff[8] = {0xF1, 0x10, 0x0B, 0x62, 0xF1, 0x90, 0x01, 0x02};
+    static const uint8_t cf[8] = {0xF1, 0x21, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+    on_can_11bit();
+    elm_ok("ATCEA40\r");
+    elm_ok("ATFCSD40300205\r");
+    elm_ok("ATFCSM2\r");
+
+    fake_can_stage_response(0x7E8, 8, ff, 1);
+    fake_can_stage_response_at(0x7E8, 8, cf, 1, 2);
+    elm_ask("22F190\r");
+
+    TEST_ASSERT_TRUE(fake_can_sent_count() >= 2);
+    const struct can_frame *fc = fake_can_sent(1);
+    TEST_ASSERT_EQUAL_INT(0x40, fc->data[0]);
+    TEST_ASSERT_EQUAL_INT(0x30, fc->data[1]);
+    TEST_ASSERT_EQUAL_INT(0x02, fc->data[2]);
+    TEST_ASSERT_EQUAL_INT(0x05, fc->data[3]);
+}
+
+TEST(cfc0_withholds_the_flow_control_frame) {
+    on_can_11bit();
+    elm_ok("ATCFC0\r");
+
+    fake_can_stage_response(0x7E8, 8, ff_11, 1);
+    fake_can_stage_response_at(0x7E8, 8, cf_11, 1, 2);
+    const char *out = elm_ask("22F190\r");
+
+    /* Only the request went out; the reply is still displayed. */
+    TEST_ASSERT_EQUAL_INT(1, fake_can_sent_count());
+    TEST_ASSERT_NOT_NULL(strstr(out, "7E8"));
+}
+
+TEST(user_29_bit_flow_control_goes_to_the_header_and_mode_1_to_the_user_id) {
+    elm_echo_off();
+    elm_ok("ATPB0101\r"); /* ISO-TP framing, 29 bit */
+    elm_ok("ATSPB\r");
+    elm_ok("ATBI\r");
+    elm_ok("ATSH18DA10F1\r");
+    elm_ok("ATCRA18DAF110\r");
+    elm_ok("ATH1\r");
+    const uint32_t reply_id = 0x18DAF110 | CAN_EFF_FLAG;
+    const uint8_t ff[8] = {0x10, 0x0B, 0x62, 0xF1, 0x90, 0x01, 0x02, 0x03};
+
+    fake_can_stage_response(reply_id, 8, ff, 1);
+    fake_can_stage_response_at(reply_id, 8, cf_11, 1, 2);
+    elm_ask("22F190\r");
+    TEST_ASSERT_TRUE(fake_can_sent_count() >= 2);
+    TEST_ASSERT_EQUAL_HEX32(0x18DA10F1 | CAN_EFF_FLAG, fake_can_sent(1)->id);
+
+    int before = fake_can_sent_count();
+    elm_ok("ATFCSH18DA10F2\r");
+    elm_ok("ATFCSD300000\r");
+    elm_ok("ATFCSM1\r");
+    fake_can_stage_response(reply_id, 8, ff, 1);
+    fake_can_stage_response_at(reply_id, 8, cf_11, 1, 2);
+    elm_ask("22F190\r");
+    TEST_ASSERT_TRUE(fake_can_sent_count() >= before + 2);
+    TEST_ASSERT_EQUAL_HEX32(0x18DA10F2 | CAN_EFF_FLAG,
+                            fake_can_sent(before + 1)->id);
+}
+
+TEST(a_ninth_simultaneous_29_bit_responder_does_not_hang_the_exchange) {
+    on_can_29bit();
+    elm_ok("ATSH18DB33F1\r");
+
+    for (unsigned i = 0; i < 9; i++) {
+        fake_can_stage_response((0x18DAF110 + i) | CAN_EFF_FLAG, 8, ff_11, 1);
+    }
+    uint32_t before = fake_clock_ms();
+    elm_ask("22F190\r");
+
+    TEST_ASSERT_MSG(fake_clock_ms() - before < 5000, "exchange did not end");
 }

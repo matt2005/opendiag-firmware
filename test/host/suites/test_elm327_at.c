@@ -1293,3 +1293,251 @@ TEST(one_write_of_several_commands_is_still_answered_in_full) {
                              "OK\r" ELM_PROMPT,
                              fake_port_text(0));
 }
+
+/* ------------------------------------------------------------------ *
+ * Protocol names, argument checks and the remaining stateful commands
+ * ------------------------------------------------------------------ */
+
+TEST(at_dp_names_every_protocol_the_datasheet_lists) {
+    static const struct {
+        const char *select;
+        const char *name;
+    } protocols[] = {
+        {"ATSP1\r", "SAE J1850 PWM"},
+        {"ATSP2\r", "SAE J1850 VPW"},
+        {"ATSP3\r", "ISO 9141-2"},
+        {"ATSP4\r", "ISO 14230-4 (KWP 5BAUD)"},
+        {"ATSP5\r", "ISO 14230-4 (KWP FAST)"},
+        {"ATSP6\r", "ISO 15765-4 (CAN 11/500)"},
+        {"ATSP7\r", "ISO 15765-4 (CAN 29/500)"},
+        {"ATSP8\r", "ISO 15765-4 (CAN 11/250)"},
+        {"ATSP9\r", "ISO 15765-4 (CAN 29/250)"},
+        {"ATSPA\r", "SAE J1939 (CAN 29/250)"},
+        {"ATSPB\r", "USER1 CAN"},
+        {"ATSPC\r", "USER2 CAN"},
+    };
+
+    elm_echo_off();
+    for (unsigned i = 0; i < sizeof(protocols) / sizeof(protocols[0]); i++) {
+        char expect[64];
+
+        elm_ok(protocols[i].select);
+        snprintf(expect, sizeof(expect), "%s\r" ELM_PROMPT, protocols[i].name);
+        TEST_ASSERT_EQUAL_STRING(expect, elm_ask("ATDP\r"));
+    }
+
+    elm_ok("ATSP0\r");
+    TEST_ASSERT_EQUAL_STRING("AUTO\r" ELM_PROMPT, elm_ask("ATDP\r"));
+
+    /* A value outside the table is reported rather than guessed at. */
+    g_elm->settings.current_protocol = 0x0F;
+    g_elm->settings.auto_search = false;
+    g_elm->settings.auto_fallback = false;
+    TEST_ASSERT_EQUAL_STRING("UNKNOWN\r" ELM_PROMPT, elm_ask("ATDP\r"));
+}
+
+TEST(at_commands_with_unusable_arguments_are_refused) {
+    static const char *const bad[] = {
+        "ATPROGVZ0000000\r", /* programming voltage: pin is not a hex digit */
+        "ATIFR10\r",         /* IFR selector is one character */
+        "ATCEAZZ\r",         /* extended address is not hex */
+        "ATCERZZ\r",         /* extended RX address is not hex */
+        "ATCFZZZ\r",         /* CAN filter is not hex */
+        "ATCMZZZ\r",         /* CAN mask is not hex */
+        "ATCRAZZZ\r",        /* CAN receive address is not hex */
+        "ATCPZZ\r",          /* CAN priority is not hex */
+        "ATFCSM3\r",         /* flow control mode is 0..2 */
+        "ATFCSH12\r",        /* flow control header is 3 or 8 digits */
+        "ATFCSD1\r",         /* flow control data is whole bytes */
+        "ATFCSDZZ\r",        /* flow control data is hex */
+        "ATSDZZ\r",          /* user byte is hex */
+        "ATCV12\r",          /* calibration voltage is four digits */
+        "ATPP\r",            /* PP needs a parameter and an action */
+        "ATPP03\r",
+        "ATPP03XX\r", /* and the action has to be one it knows */
+        "ATPP05ON\r", /* PP 05 is not one the adapter has */
+        "ATPP05OFF\r",
+        "ATIB99\r",
+        "ATMRZ\r", /* the monitors want a hex address */
+        "ATMTZ\r",
+    };
+
+    elm_echo_off();
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        TEST_ASSERT_MSG(strcmp("?\r" ELM_PROMPT, elm_ask(bad[i])) == 0,
+                        "%s was not refused", bad[i]);
+    }
+}
+
+TEST(at_pp_ff_switches_every_supported_parameter_together) {
+    elm_echo_off();
+
+    elm_ok("ATPPFFOFF\r");
+    TEST_ASSERT_FALSE(g_elm->settings.pp_enabled[0x03]);
+    TEST_ASSERT_NOT_NULL(strstr(elm_ask("ATPPS\r"), "03:"));
+
+    elm_ok("ATPPFFON\r");
+    TEST_ASSERT_TRUE(g_elm->settings.pp_enabled[0x03]);
+    /* Only parameters the adapter has are touched. */
+    TEST_ASSERT_FALSE(g_elm->settings.pp_enabled[0x05]);
+
+    elm_ok("ATPP03OFF\r");
+    TEST_ASSERT_FALSE(g_elm->settings.pp_enabled[0x03]);
+    TEST_ASSERT_TRUE(g_elm->settings.pp_enabled[0x04]);
+}
+
+TEST(at_ib115_selects_115200_baud_on_the_iso_line) {
+    elm_echo_off();
+    elm_ok("ATIB115\r");
+    TEST_ASSERT_EQUAL_HEX32(115200, g_elm->settings.iso_baud);
+}
+
+TEST(at_cea_cer_cfc_c0_c1_change_the_state_they_name) {
+    elm_echo_off();
+
+    elm_ok("ATCEA40\r");
+    TEST_ASSERT_TRUE(g_elm->settings.cea_enabled);
+    TEST_ASSERT_EQUAL_INT(0x40, g_elm->settings.cea_tx_addr);
+
+    elm_ok("ATCERA5\r");
+    TEST_ASSERT_TRUE(g_elm->settings.cer_override);
+    TEST_ASSERT_EQUAL_INT(0xA5, g_elm->settings.cer_rx_addr);
+
+    /* A bare AT CEA turns extended addressing off and drops the RX override. */
+    elm_ok("ATCEA\r");
+    TEST_ASSERT_FALSE(g_elm->settings.cea_enabled);
+    TEST_ASSERT_FALSE(g_elm->settings.cer_override);
+    TEST_ASSERT_EQUAL_INT(g_elm->settings.tester_address,
+                          g_elm->settings.cer_rx_addr);
+
+    elm_ok("ATCFC0\r");
+    TEST_ASSERT_FALSE(g_elm->settings.cfc_enabled);
+    elm_ok("ATCFC1\r");
+    TEST_ASSERT_TRUE(g_elm->settings.cfc_enabled);
+
+    elm_ok("ATC1\r");
+    TEST_ASSERT_TRUE(g_elm->settings.can_tx_ack);
+    elm_ok("ATC0\r");
+    TEST_ASSERT_FALSE(g_elm->settings.can_tx_ack);
+}
+
+TEST(at_cra_without_an_argument_clears_the_receive_filters) {
+    elm_echo_off();
+    elm_ok("ATCRA7E8\r");
+    elm_ok("ATCF7E8\r");
+    TEST_ASSERT_TRUE(g_elm->settings.can_cra_active);
+
+    elm_ok("ATCRA\r");
+
+    TEST_ASSERT_FALSE(g_elm->settings.can_cra_active);
+    TEST_ASSERT_FALSE(g_elm->settings.can_cfcm_active);
+    TEST_ASSERT_EQUAL_HEX32(0, g_elm->settings.can_cf_id);
+    TEST_ASSERT_EQUAL_HEX32(UINT32_MAX, g_elm->settings.can_cm_mask);
+}
+
+TEST(at_cra_with_only_wildcards_accepts_the_whole_identifier_space) {
+    elm_echo_off();
+    elm_ok("ATCRAXXX\r");
+    TEST_ASSERT_EQUAL_HEX32(CAN_SFF_MASK, g_elm->settings.can_cra_mask);
+    elm_ok("ATCRAXXXXXXXX\r");
+    TEST_ASSERT_EQUAL_HEX32(CAN_EFF_MASK, g_elm->settings.can_cra_mask);
+}
+
+TEST(at_cm_alone_adopts_its_identifier_as_the_filter) {
+    elm_echo_off();
+    elm_ok("ATCM7FF\r");
+    TEST_ASSERT_TRUE(g_elm->settings.can_cfcm_active);
+    TEST_ASSERT_EQUAL_HEX32(0x7FF, g_elm->settings.can_cf_id);
+}
+
+TEST(at_at3_refuses_an_identifier_outside_the_printable_range) {
+    elm_echo_off();
+    /* The identifier locks for good once written, and the lock outlives a
+     * reset, so a test that wants to write has to lift it first. */
+    g_elm->settings.identifier_locked = false;
+    /* 0x60 is one past the last character the identifier may hold. */
+    TEST_ASSERT_EQUAL_STRING("?\r" ELM_PROMPT, elm_ask("AT@3ABCDEFGHIJK`\r"));
+    TEST_ASSERT_FALSE(g_elm->settings.identifier_locked);
+    elm_ok("AT@3ABCDEFGHIJKL\r");
+    TEST_ASSERT_TRUE(g_elm->settings.identifier_locked);
+}
+
+TEST(at_bd_dumps_the_last_request_zero_padded) {
+    elm_echo_off();
+    TEST_ASSERT_EQUAL_STRING(
+        "00 00 00 00 00 00 00 00 00 00 00 00 00\r" ELM_PROMPT,
+        elm_ask("ATBD\r"));
+
+    elm_ok("ATSP6\r");
+    elm_ask("0100\r");
+
+    TEST_ASSERT_EQUAL_STRING(
+        "02 01 00 00 00 00 00 00 00 00 00 00 00\r" ELM_PROMPT,
+        elm_ask("ATBD\r"));
+}
+
+TEST(at_fe_forgets_the_late_reply_watch) {
+    elm_echo_off();
+    g_elm->timing.watch.active = true;
+    g_elm->search_first = 3;
+
+    elm_ok("ATFE\r");
+
+    TEST_ASSERT_FALSE(g_elm->timing.watch.active);
+    TEST_ASSERT_EQUAL_INT(0, g_elm->search_first);
+}
+
+TEST(at_vif_ediabas_and_kdcan_are_always_answered) {
+    /* Not every build registers these grammars; either way the command must
+     * be answered, never swallowed. */
+    elm_echo_off();
+    const char *a = elm_ask("ATVIFEDIABAS\r");
+    TEST_ASSERT_TRUE(strncmp(a, "OK\r", 3) == 0 || strncmp(a, "?\r", 2) == 0);
+    vif_link_select_frontend(&elm327_frontend);
+    vif_link_service();
+    elm_echo_off();
+    const char *b = elm_ask("ATVIFKDCAN\r");
+    TEST_ASSERT_TRUE(strncmp(b, "OK\r", 3) == 0 || strncmp(b, "?\r", 2) == 0);
+    vif_link_select_frontend(&elm327_frontend);
+    vif_link_service();
+}
+
+TEST(a_slow_can_reply_misses_the_window_without_ctm5) {
+    static const uint8_t reply[8] = {0x06, 0x41, 0x00, 0xBE,
+                                     0x3F, 0xB8, 0x13, 0x00};
+    elm_echo_off();
+    elm_ok("ATSP6\r");
+    elm_ok("ATST4B\r"); /* 75 * 4 = 300 ms */
+    TEST_ASSERT_EQUAL_HEX32(300, elm327_timeout_limit(g_elm));
+
+    fake_can_stage_response(0x7E8, 8, reply, 1000);
+    TEST_ASSERT_EQUAL_STRING("NO DATA\r" ELM_PROMPT, elm_ask("0100\r"));
+}
+
+TEST(at_ctm5_stretches_the_can_reply_window_five_fold) {
+    static const uint8_t reply[8] = {0x06, 0x41, 0x00, 0xBE,
+                                     0x3F, 0xB8, 0x13, 0x00};
+    elm_echo_off();
+    elm_ok("ATSP6\r");
+    elm_ok("ATST4B\r"); /* 75 * 4 = 300 ms */
+    elm_ok("ATCTM5\r"); /* 300 * 5 = 1500 ms */
+    TEST_ASSERT_EQUAL_HEX32(1500, elm327_timeout_limit(g_elm));
+
+    fake_can_stage_response(0x7E8, 8, reply, 1000);
+    TEST_ASSERT_EQUAL_STRING("41 00 BE 3F B8 13 \r" ELM_PROMPT,
+                             elm_ask("0100\r"));
+}
+
+TEST(a_learned_estimate_never_widens_the_window_past_the_timeout) {
+    elm_echo_off();
+    elm_ok("ATST0A\r"); /* 40 ms */
+    g_elm->timing.estimate_ms = 500;
+    TEST_ASSERT_EQUAL_HEX32(40, elm327_reply_window(g_elm));
+}
+
+TEST(registering_the_front_end_twice_is_survivable) {
+    /* The second registration of the same name is refused; the failure is
+     * logged and must not take the module down. */
+    elm327_register();
+    TEST_ASSERT_NOT_NULL(vif_link_frontend_name());
+}

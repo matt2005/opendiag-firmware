@@ -460,3 +460,64 @@ TEST(extended_address_is_checked_before_pci) {
     sf[1] = 7;
     TEST_ASSERT_EQUAL_INT(ISOTP_IGNORED, feed(sf, 8, 2));
 }
+
+TEST(init_rejects_null_and_invalid_configuration) {
+    isotp_config_t bad = isotp_config_default(0x7e0, 0x7e8);
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT,
+                          isotp_rx_init(NULL, &config, received, 8));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT,
+                          isotp_rx_init(&rx, NULL, received, 8));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_tx_init(NULL, &config));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_tx_init(&tx, NULL));
+    bad.stmin = 0x80;
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT,
+                          isotp_rx_init(&rx, &bad, received, 8));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_tx_init(&tx, &bad));
+    bad = isotp_config_default(0x800, 0x7e8);
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_tx_init(&tx, &bad));
+    bad = isotp_config_default(0x7e0, 0x7e8);
+    bad.timeout_cr_us = 0;
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_tx_init(&tx, &bad));
+}
+
+TEST(rx_feed_rejects_null_arguments) {
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT,
+                          isotp_rx_feed(NULL, &frame, 0, &segment));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT,
+                          isotp_rx_feed(&rx, &frame, 0, NULL));
+}
+
+TEST(rx_feed_reports_a_consecutive_frame_timeout) {
+    first(20, 0);
+    uint8_t cf[8] = {0x21, 7, 8, 9, 10, 11, 12, 13};
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_TIMEOUT_CR, feed(cf, 8, 1000000));
+    TEST_ASSERT_EQUAL_INT(ISOTP_RX_IDLE, rx.state);
+}
+
+TEST(rx_confirm_checks_state_and_deadline) {
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_ARGUMENT, isotp_rx_confirm(&rx, true, 0));
+    uint8_t ff[8] = {0x10, 20};
+    TEST_ASSERT_EQUAL_INT(ISOTP_FRAME, feed(ff, 8, 0));
+    TEST_ASSERT_EQUAL_INT(ISOTP_FRAME, isotp_rx_flow_control(&rx, &frame, 1));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_TIMEOUT_A,
+                          isotp_rx_confirm(&rx, true, 1000001));
+    TEST_ASSERT_EQUAL_INT(ISOTP_RX_IDLE, rx.state);
+}
+
+TEST(tx_flow_control_after_deadline_reports_bs_timeout) {
+    start_tx(20, 0);
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_TIMEOUT_BS, flow(0, 0, 0, 1000000));
+    TEST_ASSERT_EQUAL_INT(ISOTP_TX_IDLE, tx.state);
+}
+
+TEST(tx_more_and_confirm_report_a_confirmation_timeout) {
+    TEST_ASSERT_EQUAL_INT(0, isotp_tx_start(&tx, payload, 3, 0));
+    TEST_ASSERT_EQUAL_INT(ISOTP_FRAME, isotp_tx_next(&tx, &frame, 0));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_TIMEOUT_A,
+                          isotp_tx_more(&tx, &frame, 1000000));
+    TEST_ASSERT_EQUAL_INT(0, isotp_tx_start(&tx, payload, 3, 2000000));
+    TEST_ASSERT_EQUAL_INT(ISOTP_FRAME, isotp_tx_next(&tx, &frame, 2000000));
+    TEST_ASSERT_EQUAL_INT(ISOTP_ERR_TIMEOUT_A,
+                          isotp_tx_confirm(&tx, true, 3000000));
+    TEST_ASSERT_EQUAL_INT(ISOTP_TX_IDLE, tx.state);
+}
