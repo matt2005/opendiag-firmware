@@ -707,3 +707,10 @@ TEST(an_aborted_train_reports_the_frames_that_went_out) {
     TEST_ASSERT_EQUAL_INT(3, train.sent);
     TEST_ASSERT_EQUAL_INT(1, silent);
 }
+
+TEST(can_bus_aux_reports_the_requested_port) {
+    TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_use_aux(true));
+    TEST_ASSERT_TRUE(can_bus_aux());
+    TEST_ASSERT_EQUAL_INT(ESP_OK, can_bus_use_aux(false));
+    TEST_ASSERT_FALSE(can_bus_aux());
+}

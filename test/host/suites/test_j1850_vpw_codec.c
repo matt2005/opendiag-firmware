@@ -1108,3 +1108,25 @@ TEST(watch_offsets_respects_the_caller_s_capacity) {
     TEST_ASSERT_EQUAL_INT(0, j1850_vpw_watch_offsets(&longp, 12, 12, one, 0));
     TEST_ASSERT_EQUAL_INT(0, j1850_vpw_watch_offsets(NULL, 12, 12, one, 1));
 }
+
+TEST(a_pulse_no_longer_than_the_tail_guard_is_not_sampled) {
+    j1850_vpw_pulse_t shortp = {J1850_VPW_PASSIVE, J1850_VPW_TV1_NOM};
+    uint16_t offs[J1850_VPW_MAX_WATCH] = {0xFFFF, 0xFFFF};
+
+    /* The tail guard alone eats the whole pulse, whatever the head guard. */
+    TEST_ASSERT_EQUAL_INT(
+        0, j1850_vpw_watch_offsets(&shortp, 0, J1850_VPW_TV1_NOM, offs,
+                                   J1850_VPW_MAX_WATCH));
+    TEST_ASSERT_EQUAL_INT(
+        0, j1850_vpw_watch_offsets(&shortp, 0, J1850_VPW_TV1_NOM + 40, offs,
+                                   J1850_VPW_MAX_WATCH));
+    TEST_ASSERT_EQUAL_INT(0xFFFF, offs[0]); /* nothing written */
+}
+
+TEST(an_unknown_receive_status_is_named_with_a_placeholder) {
+    TEST_ASSERT_EQUAL_STRING("ok", j1850_vpw_rx_status_str(J1850_VPW_RX_OK));
+    TEST_ASSERT_EQUAL_STRING("bad-crc",
+                             j1850_vpw_rx_status_str(J1850_VPW_RX_BAD_CRC));
+    TEST_ASSERT_EQUAL_STRING("?",
+                             j1850_vpw_rx_status_str((j1850_vpw_rx_status_t)99));
+}

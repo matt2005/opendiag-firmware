@@ -247,3 +247,12 @@ TEST(security_modes_have_names) {
     /* The default is the closed one. */
     TEST_ASSERT_EQUAL_INT(0, BLE_SEC_STRICT);
 }
+
+TEST(uuid16_is_zero_for_a_null_or_128_bit_uuid) {
+    ble_profile_uuid_t wide = {.len = 16};
+    ble_profile_uuid_t narrow = {.len = 2, .bytes = {0xE1, 0xFF}};
+
+    TEST_ASSERT_EQUAL_INT(0, ble_profile_uuid16(NULL));
+    TEST_ASSERT_EQUAL_INT(0, ble_profile_uuid16(&wide));
+    TEST_ASSERT_EQUAL_INT(0xFFE1, ble_profile_uuid16(&narrow));
+}

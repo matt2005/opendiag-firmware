@@ -298,3 +298,36 @@ TEST(reset_reports_failed_cleanup_and_preserves_claim_for_retry) {
     TEST_ASSERT_EQUAL_INT(VIF_BUS_NONE,
                           vif_bus_current(VIF_OWNER_LINK, VIF_BUS_J1850_PWM));
 }
+
+/* ------------------------------------------------------------------ *
+ * Argument edges
+ * ------------------------------------------------------------------ */
+
+TEST(a_null_command_is_refused_with_an_error_reply) {
+    memset(g_out, 0, sizeof(g_out));
+
+    TEST_ASSERT_FALSE(vif_ctrl_exec(NULL, 4, g_out, sizeof(g_out)));
+    TEST_ASSERT_EQUAL_STRING("ERR empty", g_out);
+}
+
+TEST(no_reply_buffer_means_no_command_is_run) {
+    char out[8] = "keep";
+
+    TEST_ASSERT_FALSE(vif_ctrl_exec("MODE=slcan", 10, NULL, sizeof(out)));
+    TEST_ASSERT_FALSE(vif_ctrl_exec("MODE=slcan", 10, out, 0));
+    /* Nothing was written, and the mode did not change. */
+    TEST_ASSERT_EQUAL_STRING("keep", out);
+    TEST_ASSERT_TRUE(vif_link_frontend_name() == NULL ||
+                     strcmp(vif_link_frontend_name(), "slcan") != 0);
+}
+
+TEST(leading_spaces_and_trailing_nuls_are_trimmed) {
+    /* The length counts padding NULs a fixed-size GATT buffer can carry. */
+    static const char padded[] = "   MODE=slcan  \0\0";
+
+    memset(g_out, 0, sizeof(g_out));
+    TEST_ASSERT_TRUE(vif_ctrl_exec(padded, sizeof(padded) - 1, g_out,
+                                   sizeof(g_out)));
+    vif_link_service();
+    TEST_ASSERT_EQUAL_STRING("slcan", vif_link_frontend_name());
+}

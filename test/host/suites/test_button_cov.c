@@ -13,13 +13,62 @@
  * a real ISR would.
  */
 
+#include <setjmp.h>
+
 #include "td_test.h"
 
 #include "fake_clock.h"
 #include "fake_gpio.h"
 #include "pinout.h"
 
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+/*
+ * Failure injection for button_init() and a way out of button_task()'s endless
+ * loop. The real stand-ins are called through unless a test arms a failure.
+ */
+static bool g_fail_task_create;
+static bool g_fail_intr_type;
+static TaskFunction_t g_task_fn;
+static int g_take_calls;
+static int g_take_limit; /* 0: never leave the task loop */
+static jmp_buf g_leave_task;
+
+static BaseType_t test_xTaskCreate(TaskFunction_t fn, const char *name,
+                                   uint32_t stack, void *param,
+                                   UBaseType_t prio, TaskHandle_t *created) {
+    g_task_fn = fn;
+    if (g_fail_task_create) {
+        return pdFAIL;
+    }
+    return xTaskCreate(fn, name, stack, param, prio, created);
+}
+
+static esp_err_t test_gpio_set_intr_type(gpio_num_t pin, gpio_int_type_t t) {
+    if (g_fail_intr_type) {
+        return ESP_FAIL;
+    }
+    return gpio_set_intr_type(pin, t);
+}
+
+static uint32_t test_ulTaskNotifyTake(BaseType_t clear, TickType_t wait) {
+    if (g_take_limit && ++g_take_calls >= g_take_limit) {
+        longjmp(g_leave_task, 1);
+    }
+    return ulTaskNotifyTake(clear, wait);
+}
+
+#define xTaskCreate test_xTaskCreate
+#define gpio_set_intr_type test_gpio_set_intr_type
+#define ulTaskNotifyTake test_ulTaskNotifyTake
+
 #include "button.c"
+
+#undef xTaskCreate
+#undef gpio_set_intr_type
+#undef ulTaskNotifyTake
 
 static int g_fired_count;
 static int g_long_count;
@@ -385,4 +434,57 @@ TEST(the_setters_install_the_callbacks_the_task_calls) {
 
     TEST_ASSERT_EQUAL_INT(1, g_alt_click_count);
     TEST_ASSERT_EQUAL_INT(0, g_click_count);
+}
+
+/* ------------------------------------------------------------------ *
+ * button_init() failures and the task loop
+ * ------------------------------------------------------------------ */
+
+TEST(init_reports_a_failed_task_start_and_attaches_no_isr) {
+    fake_gpio_reset();
+    idf_stub_reset_task_starts();
+    g_fail_task_create = true;
+    button_init();
+    g_fail_task_create = false;
+
+    /* Without the task there is nothing for an edge to wake, so no ISR is
+     * attached rather than notifying a NULL handle. */
+    TEST_ASSERT_EQUAL_INT(0, idf_stub_task_starts());
+    idf_stub_notify_reset();
+    release();
+    press();
+    TEST_ASSERT_FALSE(idf_stub_notify_pending());
+}
+
+TEST(init_survives_a_failed_isr_attach) {
+    fake_gpio_reset();
+    idf_stub_reset_task_starts();
+    g_fail_intr_type = true;
+    button_init();
+    g_fail_intr_type = false;
+
+    TEST_ASSERT_EQUAL_INT(1, idf_stub_task_starts());
+    idf_stub_notify_reset();
+    release();
+    press();
+    TEST_ASSERT_FALSE(idf_stub_notify_pending());
+}
+
+TEST(the_task_body_loops_over_button_step) {
+    g_task_fn = NULL;
+    button_init();
+    TEST_ASSERT_NOT_NULL((void *)g_task_fn);
+
+    press(); /* edge: wakes the idle wait */
+    g_take_calls = 0;
+    g_take_limit = 3; /* idle wake, hold wait, then the third call leaves */
+    if (setjmp(g_leave_task) == 0) {
+        g_task_fn(NULL);
+        TEST_FAIL("task body returned");
+    }
+    g_take_limit = 0;
+
+    /* Two steps ran: the press was latched, then the hold threshold fired. */
+    TEST_ASSERT_EQUAL_INT(1, g_fired_count);
+    TEST_ASSERT_EQUAL_INT(0, g_long_count);
 }

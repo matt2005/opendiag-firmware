@@ -2028,3 +2028,151 @@ TEST(poll_after_the_device_is_closed_transmits_nothing) {
     TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
     TEST_ASSERT_FALSE(fake_can_is_up());
 }
+
+/* ------------------------------------------------------------------ *
+ * Remaining edges: no device, unknown requests, refused transmissions
+ * ------------------------------------------------------------------ */
+
+TEST(next_wake_reports_nothing_without_an_open_device) {
+    uint32_t due = 0;
+
+    j2534_core_stop();
+    TEST_ASSERT_FALSE(j2534_core_next_wake(&due));
+}
+
+
+TEST(a_multiframe_message_to_a_functional_address_is_refused_before_sending) {
+    uint32_t ch = logical(connect_can(0), false);
+    /* 0x7DF is not the channel's remote address (0x7E0), so the message is
+     * functional, and a functional request can only be a single frame. The
+     * request is refused up front, so the transmit path never sees it. */
+    const uint8_t msg[] = {0, 0, 7, 0xdf, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+    queue(ch, J2534_ISOTP, J2534_PAD, msg, sizeof(msg));
+    TEST_ASSERT_EQUAL_INT(J2534_MSG_NOT_ALLOWED, call());
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+    TEST_ASSERT_EQUAL_INT(J2534_EMPTY, read_message(ch));
+}
+
+TEST(a_periodic_multiframe_message_is_refused_before_sending) {
+    uint32_t ch = logical(connect_can(0), false);
+
+    command(opendiag_Request_start_periodic_tag);
+    opendiag_Periodic *p = &req.command.start_periodic;
+    p->channel = ch;
+    p->interval_ms = 10;
+    p->has_message = true;
+    p->message.protocol = J2534_ISOTP;
+    p->message.tx_flags = J2534_PAD;
+    p->message.data.size = 14;
+    memcpy(p->message.data.bytes, "\0\0\x07\xdf\1\2\3\4\5\6\7\x08\x09\x0a", 14);
+    TEST_ASSERT_EQUAL_INT(J2534_MSG, call()); /* too long for a periodic */
+    fake_clock_advance_ms(10);
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+}
+
+TEST(a_transmit_refused_by_the_bus_layer_is_reported_as_failed) {
+    uint32_t ch = connect_can(0);
+
+    /* Take the claim away underneath the channel: the driver layer refuses
+     * the submit itself rather than failing it on the wire. */
+    TEST_ASSERT_EQUAL_INT(ESP_OK, vif_bus_release_all(VIF_OWNER_LINK));
+    queue(ch, J2534_CAN, 0, (const uint8_t *)"\0\0\x07\xdf\x01", 5);
+    call();
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(0, fake_can_sent_count());
+}
+
+TEST(can_link_down_and_overflow_reach_logical_channels_too) {
+    uint32_t p = connect_can(0), ch = logical(p, false);
+    const uint8_t data[8] = {0x10, 10, 1, 2, 3, 4, 5, 6};
+
+    /* An overflow flagged on the parent marks every logical channel on it. */
+    fake_can_stage_overflow();
+    fake_can_stage_stale(0x7e8, 8, data);
+    j2534_core_poll();
+    while (read_message(p) == J2534_OK) {
+    }
+
+    /* A link failure resets the logical channel's ISO-TP state. */
+    fake_can_stage_stale_status(0x7e8, 8, data, BUS_RX_LINK_DOWN);
+    j2534_core_poll();
+    bool error_seen = false;
+    while (read_message(ch) == J2534_OK)
+        error_seen |= res.message.rx_status == J2534_ERROR;
+    TEST_ASSERT_TRUE(error_seen);
+}
+
+TEST(a_stalled_multiframe_receive_times_out_and_bounds_the_next_wake) {
+    uint32_t ch = logical(connect_can(0), false);
+    const uint8_t first[] = {0x10, 10, 1, 2, 3, 4, 5, 6};
+    uint32_t due = 0, before;
+
+    (void)ch;
+    fake_can_stage_stale(0x7e8, 8, first);
+    j2534_core_poll();
+    /* The reassembly deadline is the next thing the link has to wake for. */
+    TEST_ASSERT_TRUE(j2534_core_next_wake(&due));
+
+    fake_clock_advance_ms(10000);
+    /* A deadline already behind us is the poll's job, not a wake-up. */
+    j2534_core_next_wake(&due);
+    before = j2534_core_progress();
+    j2534_core_poll();
+    TEST_ASSERT_TRUE(j2534_core_progress() != before);
+}
+
+TEST(periodics_due_together_go_out_in_start_order) {
+    uint32_t ch = connect_can(0);
+    uint32_t i;
+
+    for (i = 0; i < 2; i++) {
+        command(opendiag_Request_start_periodic_tag);
+        opendiag_Periodic *p = &req.command.start_periodic;
+        p->channel = ch;
+        p->interval_ms = 10;
+        p->has_message = true;
+        p->message.protocol = J2534_CAN;
+        p->message.data.size = 5;
+        memcpy(p->message.data.bytes, "\0\0\x07\xdf\x11", 5);
+        p->message.data.bytes[4] = (uint8_t)(0x11 * (i + 1));
+        TEST_ASSERT_EQUAL_INT(0, call());
+    }
+    j2534_core_poll();
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(2, fake_can_sent_count());
+    TEST_ASSERT_EQUAL_INT(0x11, fake_can_sent(0)->data[0]);
+    TEST_ASSERT_EQUAL_INT(0x22, fake_can_sent(1)->data[0]);
+}
+
+TEST(logical_repeats_in_slot_order_are_sent_in_slot_order) {
+    uint32_t physical = connect_can(0);
+    uint32_t older_slot = logical_with_ids(physical, 0xe8, 0xe0);
+    uint32_t newer_slot = logical_with_ids(physical, 0xe9, 0xe1);
+    j2534_repeat_setup_t first = repeat_setup(J2534_ISOTP, 0);
+    j2534_repeat_setup_t second = repeat_setup(J2534_ISOTP, 0);
+    memcpy(first.message.data, "\0\0\x07\xe0\x01", 5);
+    memcpy(second.message.data, "\0\0\x07\xe1\x01", 5);
+    /* The mirror of the due-order case: the first job started is also the
+     * first slot, so the later slot's later job must not displace it. */
+    start_repeat(older_slot, &first);
+    start_repeat(newer_slot, &second);
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(1, fake_can_sent_count());
+    TEST_ASSERT_EQUAL_INT(0x7e0, fake_can_sent(0)->id);
+    j2534_core_poll();
+    TEST_ASSERT_EQUAL_INT(2, fake_can_sent_count());
+    TEST_ASSERT_EQUAL_INT(0x7e1, fake_can_sent(1)->id);
+}
+
+TEST(an_empty_frame_carrying_only_overflow_is_not_delivered_as_data) {
+    uint32_t ch = hds_channel(false);
+
+    fake_bus_stage_response_status(FAKE_BUS_KLINE, NULL, 0, 0,
+                                   BUS_RX_BUFFER_OVERFLOW);
+    j2534_core_poll();
+    /* No data and no message to deliver for the lost burst itself. */
+    TEST_ASSERT_EQUAL_INT(J2534_EMPTY, read_message(ch));
+}

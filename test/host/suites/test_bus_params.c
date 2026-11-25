@@ -42,3 +42,7 @@ TEST(ds2_and_bridge_parameters_have_shell_names) {
     TEST_ASSERT_TRUE(bus_param_from_name("bridge78", &p));
     TEST_ASSERT_EQUAL_INT(BUS_P_K_LINE_BRIDGE_78, p);
 }
+
+TEST(a_parameter_without_a_shell_name_has_no_name) {
+    TEST_ASSERT_NULL(bus_param_name((bus_param_t)0x7FFF));
+}

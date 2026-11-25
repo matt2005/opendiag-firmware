@@ -235,3 +235,45 @@ TEST(delay_us_returns_once_the_timer_has_moved_on_by_the_request) {
 
     TEST_ASSERT_TRUE(esp_timer_get_time() - start >= 25);
 }
+
+/* ------------------------------------------------------------------ *
+ * log_io_*
+ *
+ * The host log stub prints nothing unless TD_VERBOSE was set before the first
+ * log, so these check that the defensive branches return without reading
+ * through a NULL pointer or past the 8 data bytes a CAN frame can carry. The
+ * data pointer is poisoned wherever the code must not touch it.
+ * ------------------------------------------------------------------ */
+
+TEST(log_io_hex_tolerates_a_missing_prefix) {
+    const uint8_t data[] = {0xDE, 0xAD};
+
+    log_io_hex("T", NULL, data, sizeof(data));
+}
+
+TEST(log_io_hex_does_not_read_a_null_buffer_that_claims_a_length) {
+    log_io_hex("T", "rx", NULL, 5); /* would fault if it dereferenced */
+}
+
+TEST(log_io_hex_handles_empty_and_oversize_input) {
+    uint8_t big[200];
+
+    memset(big, 0xA5, sizeof(big));
+    log_io_hex("T", "rx", NULL, 0);                /* empty, no buffer */
+    log_io_hex("T", "rx", big, 0);                 /* empty, with buffer */
+    log_io_hex("T", "rx", big, sizeof(big));       /* truncated line */
+}
+
+TEST(log_io_text_tolerates_a_missing_prefix_and_text) {
+    log_io_text("T", NULL, "hello");
+    log_io_text("T", "tx", NULL);
+}
+
+TEST(log_io_can_tolerates_a_missing_prefix_and_clamps_the_dlc) {
+    uint8_t frame[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    log_io_can("T", NULL, 0x123, 8, frame);
+    /* A corrupt DLC of 15 must stop at the 8 bytes the frame can hold. */
+    log_io_can("T", "rx", 0x123, 15, frame);
+    log_io_can("T", "rx", CAN_EFF_FLAG | 0x18DB33F1u, 0, NULL);
+}
