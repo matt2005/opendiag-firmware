@@ -13,6 +13,7 @@ idf_component_register(SRCS main.c
                             j2534.pb.c
                             usb_cdc.c
                             ble_uart.c
+                            ble_profiles.c
                             can_bus.c
                             isotp.c
                             kline.c

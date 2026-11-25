@@ -129,6 +129,7 @@ set(SUITES
     test_j1850_vpw_codec
     test_kline_codec
     test_ds2_codec
+    test_ble_profiles
     test_kline_codec_cov
     test_kline_init_cov
     test_kline_api_cov
@@ -184,6 +185,7 @@ set(test_j1850_vpw_codec_FW ${FW_DIR}/j1850_vpw_codec.c
 set(test_kline_codec_FW     ${FW_DIR}/kline_codec.c
     ${FW_DIR}/bus.c)
 set(test_ds2_codec_FW       ${FW_DIR}/ds2_codec.c)
+set(test_ble_profiles_FW    ${FW_DIR}/ble_profiles.c)
 set(test_slcan_FW
     ${FW_DIR}/comm_iface.c
     ${FW_DIR}/kline_codec.c
