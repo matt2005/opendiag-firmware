@@ -266,7 +266,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build, j2534-driver]
+    needs: [build, j2534-driver, j2534-linux]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -290,6 +290,14 @@ jobs:
           path: dist
           skip-decompress: true
 
+      # The Linux artifact is a directory upload, so it is extracted: dist/linux/linux-<arch>/ holds each
+      # archive and its SHA256SUMS.
+      - name: Download verified Linux driver packages
+        uses: actions/download-artifact@v8
+        with:
+          name: opendiag-j2534-linux
+          path: dist/linux
+
       - name: Verify release packages
         run: |
           shopt -s nullglob
@@ -305,6 +313,14 @@ jobs:
             unzip "$package" -d "$verification_dir"
             (cd "$verification_dir" && sha256sum --check SHA256SUMS)
           done
+          linux_packages=(dist/linux/*/opendiag-j2534-linux-*.tar.gz)
+          if (( ${#linux_packages[@]} == 0 )); then
+            echo "No opendiag-j2534-linux-<arch>.tar.gz found in dist/linux/" >&2
+            exit 1
+          fi
+          for checksums in dist/linux/*/SHA256SUMS; do
+            (cd "$(dirname "$checksums")" && sha256sum --check SHA256SUMS)
+          done
 
       - name: Publish release
         env:
@@ -318,6 +334,7 @@ jobs:
             echo "No opendiag-firmware-<board>.zip found in dist/" >&2
             exit 1
           fi
+          linux_packages=(dist/linux/*/opendiag-j2534-linux-*.tar.gz)
           release_flags=(--verify-tag --generate-notes --title "$RELEASE_TAG")
           if [[ "$RELEASE_TAG" == *-* ]]; then
             release_flags+=(--prerelease)
@@ -325,6 +342,7 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "${firmware_packages[@]}" \
             dist/opendiag-j2534-driver.zip \
+            "${linux_packages[@]}" \
             "${release_flags[@]}"
 
       # A release made with GITHUB_TOKEN does not trigger other workflows, so ask for the docs
