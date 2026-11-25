@@ -80,6 +80,7 @@ add_library(td_fakes STATIC
     fakes/fake_gpio.c
     fakes/fake_led.c
     fakes/fake_port.c
+    fakes/fake_usb_cdc.c
 )
 target_link_libraries(td_fakes PUBLIC td_framework bus_tx_control)
 set_target_properties(td_framework td_fakes bus_tx_control
@@ -130,6 +131,8 @@ set(SUITES
     test_kline_codec
     test_ds2_codec
     test_ble_profiles
+    test_ediabas
+    test_kdcan
     test_kline_codec_cov
     test_kline_init_cov
     test_kline_api_cov
@@ -175,7 +178,8 @@ set(test_vif_link_FW
     ${FW_DIR}/bus.c
 )
 set(test_can_driver_FW ${FW_DIR}/can_bus.c driver_stubs/driver_rtos.c)
-set(test_kline_driver_FW ${FW_DIR}/kline_codec.c ${FW_DIR}/ds2_codec.c ${FW_DIR}/bus.c
+set(test_kline_driver_FW ${FW_DIR}/kline_codec.c ${FW_DIR}/ds2_codec.c
+    ${FW_DIR}/bus.c
     ${FW_DIR}/utility.c driver_stubs/driver_rtos.c)
 set(test_j1850_lifecycle_FW ${FW_DIR}/j1850_lifecycle.c)
 set(test_j1850_pwm_codec_FW ${FW_DIR}/j1850_pwm_codec.c
@@ -191,6 +195,24 @@ set(test_slcan_FW
     ${FW_DIR}/kline_codec.c
     ${FW_DIR}/bus.c
     ${FW_DIR}/slcan.c
+    ${FW_DIR}/utility.c
+    ${FW_DIR}/vif.c
+)
+set(test_ediabas_FW
+    ${FW_DIR}/comm_iface.c
+    ${FW_DIR}/kline_codec.c
+    ${FW_DIR}/ds2_codec.c
+    ${FW_DIR}/bus.c
+    ${FW_DIR}/ediabas.c
+    ${FW_DIR}/ediabas_bmwfast.c
+    ${FW_DIR}/utility.c
+    ${FW_DIR}/vif.c
+)
+set(test_kdcan_FW
+    ${FW_DIR}/comm_iface.c
+    ${FW_DIR}/kline_codec.c
+    ${FW_DIR}/bus.c
+    ${FW_DIR}/kdcan.c
     ${FW_DIR}/utility.c
     ${FW_DIR}/vif.c
 )
