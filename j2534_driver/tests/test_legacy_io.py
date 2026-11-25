@@ -223,6 +223,98 @@ class LegacyIOTests(unittest.TestCase):
             self.assertGreaterEqual(waited, 55)
             self.assertEqual(operations, ["read", "select"])
 
+    def test_adapter_statuses_newer_than_04_04_map_to_the_nearest_04_04_code(self):
+        # adapter status -> status the 04.04 application sees
+        expected = {
+            0x1C: 0x05, 0x1E: 0x05, 0x1D: 0x16, 0x1F: 0x13, 0x20: 0x13,
+            0x21: 0x07, 0x23: 0x0A, 0x27: 0x0A, 0x24: 0x01, 0x25: 0x01, 0x26: 0x07,
+            0x0C: 0x0C, 0x30: 0x07, 0x22: 0x08,
+        }
+        for adapter, legacy in expected.items():
+            def fail(peer, request, response, code=adapter):
+                if request.WhichOneof("command") == "ioctl" and request.ioctl.id == 0x0B:
+                    response.status = code
+            with self.subTest(adapter=hex(adapter)), self.session(5, fail) as (session, _):
+                self.assertEqual(session.api.PassThruIoctl(session.channel, 0x0B, None, None),
+                                 legacy)
+
+    def test_a_device_read_failure_is_returned_to_the_application(self):
+        def fail(peer, request, response):
+            if request.WhichOneof("command") == "read":
+                response.status = 0x07
+        with self.session(5, fail) as (session, _):
+            self.assertEqual(session.read(), (7, []))
+
+    def test_timed_read_returns_a_select_failure_translated(self):
+        def fail(peer, request, response):
+            if request.WhichOneof("command") == "select":
+                response.status = 0x24
+        with self.session(5, fail) as (session, _):
+            self.assertEqual(session.read(timeout=50), (1, []))
+
+    def test_receive_error_indication_fails_the_next_read_once(self):
+        def flag(peer, request, response):
+            if request.WhichOneof("command") == "queue":
+                peer.channels[request.queue.channel][-1].rx_status |= 0x20
+        with self.session(5, flag) as (session, _):
+            self.assertEqual(session.write(message(protocol=5), timeout=0), (0, 1))
+            status, _ = session.read()
+            self.assertEqual(status, 7)
+
+    def test_break_indication_clears_the_extra_data_index(self):
+        def mark(peer, request, response):
+            if request.WhichOneof("command") == "queue":
+                last = peer.channels[request.queue.channel][-1]
+                last.rx_status |= 0x04
+                last.extra_data_index = 3
+        with self.session(5, mark) as (session, _):
+            self.assertEqual(session.write(message(protocol=5), timeout=0), (0, 1))
+            for _ in range(2):
+                status, received = session.read()
+                if status == 0 and received and received[0].RxStatus & 0x04:
+                    self.assertEqual(received[0].ExtraDataIndex, 0)
+                    return
+            self.fail("no break indication was delivered")
+
+    def test_full_device_queue_fails_a_nonblocking_write_at_once(self):
+        with self.session(5) as (session, operations):
+            operations.clear()
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe3"), timeout=0), (0x11, 0))
+            self.assertEqual(operations, ["queue"])
+
+    def test_full_device_queue_times_out_a_blocking_write_after_retrying(self):
+        with self.session(5) as (session, operations):
+            operations.clear()
+            start = time.monotonic()
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe3"), timeout=80), (9, 0))
+            self.assertGreaterEqual((time.monotonic() - start) * 1000, 75)
+            self.assertGreaterEqual(operations.count("queue"), 2)
+
+    def test_read_failure_while_a_full_queue_is_pumped_ends_the_write(self):
+        def fail(peer, request, response):
+            if request.WhichOneof("command") == "read":
+                response.status = 0x07
+        with self.session(5, fail) as (session, _):
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe3"), timeout=200), (7, 0))
+
+    def test_read_failure_while_a_blocking_write_waits_for_completion_is_returned(self):
+        def fail(peer, request, response):
+            if request.WhichOneof("command") == "read":
+                response.status = 0x07
+        with self.session(5, fail) as (session, _):
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe1"), timeout=200), (7, 0))
+
+    def test_select_failure_while_a_blocking_write_waits_for_completion_is_returned(self):
+        def fail(peer, request, response):
+            if request.WhichOneof("command") == "select":
+                response.status = 0x07
+        with self.session(5, fail) as (session, _):
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe1"), timeout=200), (7, 0))
+
+    def test_blocking_write_without_completion_times_out(self):
+        with self.session(5) as (session, _):
+            self.assertEqual(session.write(message(protocol=5, payload=b"\xe1"), timeout=60), (9, 0))
+
     def wait_for(self, operations, name):
         deadline = time.monotonic() + 2
         while name not in operations and time.monotonic() < deadline:
