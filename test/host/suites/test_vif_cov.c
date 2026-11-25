@@ -872,16 +872,16 @@ TEST(a_pin_group_cannot_do_the_other_groups_job) {
 
 TEST(the_status_led_warns_while_a_connector_pin_is_live) {
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_VOLTAGE, 12000);
-    TEST_ASSERT_EQUAL_INT(LED_STATE_PIN_LIVE, fake_led_state());
+    TEST_ASSERT_EQUAL_INT(LED_OVERLAY_PIN_LIVE, fake_led_overlay());
 
     /* Still live: the low side pin is grounded even after the high side goes.
      */
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_LS, VIF_PIN_GROUND, 0);
     vif_pin_set(VIF_OWNER_LINK, OBD_PIN_HS, VIF_PIN_OFF, 0);
-    TEST_ASSERT_EQUAL_INT(LED_STATE_PIN_LIVE, fake_led_state());
+    TEST_ASSERT_EQUAL_INT(LED_OVERLAY_PIN_LIVE, fake_led_overlay());
 
     vif_pin_release_all(VIF_OWNER_LINK);
-    TEST_ASSERT_EQUAL_INT(LED_STATE_IDLE, fake_led_state());
+    TEST_ASSERT_EQUAL_INT(LED_OVERLAY_NONE, fake_led_overlay());
 }
 
 /* ------------------------------------------------------------------ *
@@ -910,7 +910,7 @@ TEST(calibration_takes_over_the_callers_own_pins) {
     TEST_ASSERT_FALSE(vif_any_pin_active());
     TEST_ASSERT_EQUAL_INT(0, fake_board_hs_state(OBD_PIN_HS));
     TEST_ASSERT_EQUAL_INT(0, fake_board_ls_state(OBD_PIN_LS));
-    TEST_ASSERT_EQUAL_INT(LED_STATE_IDLE, fake_led_state());
+    TEST_ASSERT_EQUAL_INT(LED_OVERLAY_NONE, fake_led_overlay());
 }
 
 TEST(calibration_is_refused_while_the_other_owner_holds_a_pin) {
